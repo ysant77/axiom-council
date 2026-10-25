@@ -188,6 +188,7 @@ def _cmd_bakeoff(args: argparse.Namespace) -> int:
         parse_contestants(args.models),
         with_code=not args.skip_code,
         split=args.split,
+        repair_attempts=args.repair,
     )
     for row in summarise(records):
         print(json.dumps(row))
@@ -288,6 +289,9 @@ def _add_infra_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
         choices=["development", "calibration", "holdout"],
         default="calibration",
         help="calibration updates routing; development and holdout never do",
+    )
+    bakeoff.add_argument(
+        "--repair", type=int, choices=range(4), help="repairs after public-check feedback"
     )
     bakeoff.set_defaults(fn=_cmd_bakeoff)
 

@@ -26,22 +26,38 @@ class BakeoffKind(Strict):
     prompt_id: str
     task_class: TaskClass
     num_predict: int = Field(gt=0, description="max output tokens, reasoning included")
+    public_checks: frozenset[str] = Field(
+        default_factory=frozenset,
+        description="checks whose failures may be fed back for repair (rules the task states)",
+    )
 
 
 class BakeoffSettings(Strict):
     num_ctx: int = Field(default=16384, gt=0)
     temperature: float = Field(default=0.3, ge=0)
     sandbox_id: str = "pagetrace"
+    repair_attempts: int = Field(
+        default=0, ge=0, le=3, description="extra attempts after public-check feedback"
+    )
     kinds: dict[str, BakeoffKind] = Field(
         default_factory=lambda: {
             "plan": BakeoffKind(
-                prompt_id="dispatcher.plan", task_class=TaskClass.PLAN, num_predict=4000
+                prompt_id="dispatcher.plan",
+                task_class=TaskClass.PLAN,
+                num_predict=4000,
+                public_checks=frozenset({"valid_json", "within_hours", "models_from_candidates"}),
             ),
             "review": BakeoffKind(
-                prompt_id="reviewer.review", task_class=TaskClass.REVIEW, num_predict=2500
+                prompt_id="reviewer.review",
+                task_class=TaskClass.REVIEW,
+                num_predict=2500,
+                public_checks=frozenset({"valid_json"}),
             ),
             "code": BakeoffKind(
-                prompt_id="builder.refactor", task_class=TaskClass.CODE_PATCH, num_predict=8000
+                prompt_id="builder.refactor",
+                task_class=TaskClass.CODE_PATCH,
+                num_predict=8000,
+                public_checks=frozenset({"splice", "edit_policy", "lint", "tests"}),
             ),
         }
     )

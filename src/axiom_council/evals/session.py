@@ -55,6 +55,7 @@ def run_bakeoff(
     *,
     with_code: bool,
     split: str = "calibration",
+    repair_attempts: int | None = None,
 ) -> tuple[list[RunRecord], Path]:
     unknown = [c.model_id for c in contestants if c.model_id not in registry.models]
     if unknown:
@@ -77,6 +78,7 @@ def run_bakeoff(
             meter=meter_for(node, registry.settings.energy.sample_interval_s),
             code=_code_context(registry, home, sandbox_id) if with_code else None,
             split=split,
+            repair_attempts=repair_attempts,
         )
         return bakeoff.run(contestants), results
     finally:
