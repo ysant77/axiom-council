@@ -75,3 +75,31 @@ def test_nodes_reports_down_servers(
     monkeypatch.setenv("AXIOM_COUNCIL_CONFIG", str(seed))
     assert cli.main(["nodes"]) == 0
     assert "down" in capsys.readouterr().out
+
+
+def test_tasks_and_resume_commands(capsys: pytest.CaptureFixture[str]) -> None:
+    from axiom_council.contracts import Budget, Capability, RiskClass, TaskClass, TaskSpec
+    from axiom_council.council import Council, open_registry
+
+    home = Path(cli._home())
+    council = Council(open_registry(home, CONFIG_DIR), home)
+    task = TaskSpec(
+        workspace_id="pagetrace",
+        objective="Summarise the evaluation module",
+        task_class=TaskClass.TRIAGE,
+        actor="director",
+        risk_class=RiskClass.MEDIUM,
+        allowed_capabilities=frozenset({Capability.LLM_INFERENCE}),
+        budget=Budget(max_tokens=16_000, max_wall_seconds=60),
+        acceptance_checks=("review",),
+    )
+    held = council.run(task, "Summarise please")
+    council.close()
+    assert cli.main(["tasks"]) == 0
+    assert "awaiting_approval" in capsys.readouterr().out
+    assert cli.main(["resume", task.task_id]) == 1  # not approved yet
+    assert "refused" in capsys.readouterr().err
+    assert held.inbox_item
+    assert cli.main(["inbox", "reject", held.inbox_item, "--text", "not now"]) == 0
+    assert cli.main(["resume", task.task_id]) == 0
+    assert "state: rejected" in capsys.readouterr().out

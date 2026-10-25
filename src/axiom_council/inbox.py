@@ -35,6 +35,7 @@ class InboxItem(Strict):
     clarification: Clarification | None = None
     status: Literal["pending", "approved", "rejected", "answered"] = "pending"
     response: str | None = None
+    token: ApprovalToken | None = None
 
 
 class Inbox:
@@ -99,7 +100,9 @@ class Inbox:
             expires_at=utcnow() + ttl,
         )
         response = f"{token.token_id}: {reason.strip()}"
-        self._save(item.model_copy(update={"status": "approved", "response": response}))
+        self._save(
+            item.model_copy(update={"status": "approved", "response": response, "token": token})
+        )
         return token
 
     def reject(self, item_id: str, reason: str) -> None:

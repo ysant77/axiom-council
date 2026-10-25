@@ -190,34 +190,66 @@ def _cmd_bakeoff(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_tasks(_: argparse.Namespace) -> int:
+    council = Council(open_registry(_home(), _config()), _home())
+    try:
+        for row in council.tasks.summary():
+            print(
+                f"{row['task_id']}  {row['state']:<22} {row['updated_at'][:19]}  {row['objective']}"
+            )
+    finally:
+        council.close()
+    return 0
+
+
+def _cmd_resume(args: argparse.Namespace) -> int:
+    council = Council(open_registry(_home(), _config()), _home())
+    try:
+        outcome = council.resume(args.task_id)
+    except PermissionError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        council.close()
+    print(f"state: {outcome.state}")
+    if outcome.result:
+        print(outcome.result.output)
+    return 0
+
+
 def _cmd_audit(_: argparse.Namespace) -> int:
     count = AuditLog(_home() / "audit.jsonl").verify()
     print(json.dumps({"records": count, "chain": "intact"}))
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="council", description="Axiom Council control plane")
-    sub = parser.add_subparsers(dest="command", required=True)
+def _task_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("objective")
+    p.add_argument("--workspace", default="sandbox")
+    p.add_argument("--task-class", default="triage", choices=[t.value for t in TaskClass])
+    p.add_argument("--max-tokens", type=int, default=16_000)
+    p.add_argument("--output-tokens", type=int, default=1024)
 
-    sub.add_parser("nodes", help="probe configured nodes and models").set_defaults(fn=_cmd_nodes)
 
-    def task_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument("objective")
-        p.add_argument("--workspace", default="sandbox")
-        p.add_argument("--task-class", default="triage", choices=[t.value for t in TaskClass])
-        p.add_argument("--max-tokens", type=int, default=16_000)
-        p.add_argument("--output-tokens", type=int, default=1024)
-
+def _add_task_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Commands that submit, route, list and resume tasks."""
     route = sub.add_parser("route", help="explain where a task would be routed")
-    task_args(route)
+    _task_args(route)
     route.add_argument("--prompt-tokens", type=int, default=500)
     route.set_defaults(fn=_cmd_route)
 
     ask = sub.add_parser("ask", help="run a single routed task")
-    task_args(ask)
+    _task_args(ask)
     ask.set_defaults(fn=_cmd_ask)
 
+    sub.add_parser("tasks", help="list recent tasks and their states").set_defaults(fn=_cmd_tasks)
+    resume = sub.add_parser("resume", help="run an approved task (verifies its approval token)")
+    resume.add_argument("task_id")
+    resume.set_defaults(fn=_cmd_resume)
+
+
+def _add_director_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Commands the director uses to decide, configure and audit."""
     inbox = sub.add_parser("inbox", help="director approvals and clarifications")
     inbox.add_argument("action", choices=["list", "show", "approve", "reject", "answer"])
     inbox.add_argument("item_id", nargs="?")
@@ -228,6 +260,13 @@ def build_parser() -> argparse.ArgumentParser:
     config = sub.add_parser("config", help="seed or list the versioned config store")
     config.add_argument("action", choices=["seed", "list"])
     config.set_defaults(fn=_cmd_config)
+
+    sub.add_parser("audit", help="verify the audit hash chain").set_defaults(fn=_cmd_audit)
+
+
+def _add_infra_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Commands that probe nodes, test sandboxes and evaluate models."""
+    sub.add_parser("nodes", help="probe configured nodes and models").set_defaults(fn=_cmd_nodes)
 
     sandbox = sub.add_parser("sandbox", help="self-test a sandbox profile (needs Docker)")
     sandbox.add_argument("action", choices=["selftest"])
@@ -241,7 +280,13 @@ def build_parser() -> argparse.ArgumentParser:
     bakeoff.add_argument("--skip-code", action="store_true", help="skip sandboxed code fixtures")
     bakeoff.set_defaults(fn=_cmd_bakeoff)
 
-    sub.add_parser("audit", help="verify the audit hash chain").set_defaults(fn=_cmd_audit)
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="council", description="Axiom Council control plane")
+    sub = parser.add_subparsers(dest="command", required=True)
+    _add_task_commands(sub)
+    _add_director_commands(sub)
+    _add_infra_commands(sub)
     return parser
 
 
