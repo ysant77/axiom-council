@@ -13,6 +13,8 @@ from axiom_council.audit import AuditLog
 from axiom_council.configstore import ConfigStore
 from axiom_council.contracts import Budget, Capability, TaskClass, TaskSpec
 from axiom_council.council import Council, open_registry
+from axiom_council.evals.bakeoff import summarise
+from axiom_council.evals.session import parse_contestants, run_bakeoff
 from axiom_council.providers import OpenAICompatProvider, ProviderError
 from axiom_council.sandbox.runner import DockerSandbox
 from axiom_council.sandbox.selftest import selftest
@@ -173,6 +175,21 @@ def _cmd_sandbox(args: argparse.Namespace) -> int:
     return 0 if report.passed else 1
 
 
+def _cmd_bakeoff(args: argparse.Namespace) -> int:
+    registry = open_registry(_home(), _config())
+    records, results = run_bakeoff(
+        registry,
+        _home(),
+        Path(args.fixtures),
+        parse_contestants(args.models),
+        with_code=not args.skip_code,
+    )
+    for row in summarise(records):
+        print(json.dumps(row))
+    print(f"results: {results}")
+    return 0
+
+
 def _cmd_audit(_: argparse.Namespace) -> int:
     count = AuditLog(_home() / "audit.jsonl").verify()
     print(json.dumps({"records": count, "chain": "intact"}))
@@ -217,6 +234,12 @@ def build_parser() -> argparse.ArgumentParser:
     sandbox.add_argument("sandbox_id")
     sandbox.add_argument("--commit", default="HEAD")
     sandbox.set_defaults(fn=_cmd_sandbox)
+
+    bakeoff = sub.add_parser("bakeoff", help="compare models on fixed, checkable fixtures")
+    bakeoff.add_argument("--models", required=True, help="model[=think],... e.g. qwen3.8:27b=low")
+    bakeoff.add_argument("--fixtures", default="evals/fixtures")
+    bakeoff.add_argument("--skip-code", action="store_true", help="skip sandboxed code fixtures")
+    bakeoff.set_defaults(fn=_cmd_bakeoff)
 
     sub.add_parser("audit", help="verify the audit hash chain").set_defaults(fn=_cmd_audit)
     return parser

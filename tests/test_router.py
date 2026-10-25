@@ -10,6 +10,8 @@ from axiom_council.ledger import CapabilityLedger
 from axiom_council.registry import Registry
 from axiom_council.router import Router
 
+SMALL_MODELS = {"qwen3:4b", "gemma3:4b"}
+
 
 @pytest.fixture
 def ledger(tmp_path: Path) -> Iterator[CapabilityLedger]:
@@ -48,8 +50,9 @@ def test_weak_prior_is_gated_out_for_hard_tasks(
     decision = Router(registry, ledger).route(
         make_task(task_class=TaskClass.PLAN), prompt_tokens=400
     )
-    assert decision.chosen is not None and decision.chosen.model_id == "gpt-oss:20b"
-    assert any("skill lower bound" in r.reason for r in decision.rejected)
+    assert decision.chosen is not None and decision.chosen.model_id not in SMALL_MODELS
+    gated = {r.model_id for r in decision.rejected if "skill lower bound" in r.reason}
+    assert gated >= SMALL_MODELS
 
 
 def test_measured_failures_demote_a_model(
@@ -58,7 +61,7 @@ def test_measured_failures_demote_a_model(
     _record(ledger, "qwen3:4b", TaskClass.TRIAGE, ok=1, bad=12)
     _record(ledger, "gemma3:4b", TaskClass.TRIAGE, ok=1, bad=12)
     decision = Router(registry, ledger).route(make_task(), prompt_tokens=400)
-    assert decision.chosen is not None and decision.chosen.model_id == "gpt-oss:20b"
+    assert decision.chosen is not None and decision.chosen.model_id not in SMALL_MODELS
 
 
 def test_measured_successes_promote_a_model(

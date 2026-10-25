@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 import pytest
 
-from axiom_council.contracts import RiskClass, TaskClass, TaskSpec, TaskState
+from axiom_council.contracts import Budget, RiskClass, TaskSpec, TaskState
 from axiom_council.council import Council, open_registry
 from axiom_council.providers import OpenAICompatProvider, ProviderError
 from axiom_council.registry import NodeSpec, Registry
@@ -79,10 +79,8 @@ def test_no_eligible_model_escalates(
     registry: Registry, tmp_path: Path, make_task: Callable[..., TaskSpec]
 ) -> None:
     council = Council(registry, tmp_path, _factory(_ok))
-    outcome = council.run(
-        make_task(task_class=TaskClass.CODE_PATCH, repo_ref="main", base_commit_sha="abc1234"),
-        "Patch it",
-    )
+    # Any model needs more than 200 tokens for a 1024-token answer, so nothing is eligible.
+    outcome = council.run(make_task(budget=Budget(max_tokens=200, max_wall_seconds=60)), "Patch it")
     council.close()
     assert outcome.state is TaskState.AWAITING_CLARIFICATION
 

@@ -1,0 +1,78 @@
+# Product-manager planning tasks. Pass = valid plan JSON and every constraint check holds.
+# Checks: milestone count bounds, hours budget, team models drawn only from the candidates,
+# required roles staffed, required concepts mentioned (each group: any one term), forbidden
+# phrases absent, and clarifying questions asked when the request is ambiguous.
+fixtures:
+  - id: plan-refactor-evaluation
+    request: >-
+      Refactor PageTrace's evaluation module so no function exceeds 50 lines. Behaviour must
+      not change. I can review for about 3 hours this week.
+    candidates: [qwen3.8:27b, gemma4:26b, qwen3:4b]
+    min_milestones: 2
+    max_milestones: 5
+    hours_budget: 12
+    required_roles: [dev, qa]
+    must_mention: [[test], [behaviour, behavior], [approv, review]]
+    forbid: [push to main, skip tests, disable tests]
+    expect_questions: false
+
+  - id: plan-video-explainer
+    request: make me a video that explains a paper from my reading list, something cool
+    candidates: [qwen3.8:27b, gemma4:26b, qwen3:4b]
+    min_milestones: 2
+    max_milestones: 6
+    hours_budget: 40
+    required_roles: [design, dev]
+    must_mention: [[speech, tts, voice, narrat], [render, video, animation, frames], [capabilit, missing, gap, tool]]
+    forbid: []
+    expect_questions: true
+
+  - id: plan-windows-node
+    request: >-
+      Add my Windows laptop (RTX 4060, 8 GB VRAM) as a second inference node so small models
+      run there. It must not be reachable from the internet.
+    candidates: [qwen3.8:27b, gemma4:26b, qwen3:4b, gpt-oss:20b]
+    min_milestones: 2
+    max_milestones: 5
+    hours_budget: 16
+    required_roles: [mlops]
+    must_mention: [[vram, 8 gb, 8gb, memory], [private, tailscale, firewall, lan], [fail, health, heartbeat, fallback]]
+    forbid: [port forward, public ip, 0.0.0.0/0]
+    expect_questions: false
+
+  - id: plan-ambiguous-speedup
+    request: make pagetrace faster
+    candidates: [qwen3.8:27b, gemma4:26b, qwen3:4b]
+    min_milestones: 1
+    max_milestones: 5
+    hours_budget: 20
+    required_roles: [dev]
+    must_mention: [[measure, benchmark, profil, baseline, latency]]
+    forbid: []
+    expect_questions: true
+
+  - id: plan-grounded-answers
+    request: >-
+      Let me ask questions about a paper in Lumen and get answers where every claim cites the
+      exact page and quote from PageTrace. Unsupported claims must be marked.
+    candidates: [qwen3.8:27b, gemma4:26b, qwen3:4b]
+    min_milestones: 2
+    max_milestones: 6
+    hours_budget: 30
+    required_roles: [dev, qa]
+    must_mention: [[citation, cite], [unsupported, abstain, insufficient], [eval, gold, fixture, benchmark]]
+    forbid: [invent citations]
+    expect_questions: false
+
+  - id: plan-budget-squeeze
+    request: >-
+      Add a prompt-optimiser agent to the council that improves prompts automatically. I only
+      have 4 hours total and nothing may ship without passing held-out evaluations.
+    candidates: [qwen3.8:27b, gemma4:26b, qwen3:4b]
+    min_milestones: 1
+    max_milestones: 3
+    hours_budget: 4
+    required_roles: [dev]
+    must_mention: [[held-out, holdout, held out], [regress, baseline, compare]]
+    forbid: [self-modif without review]
+    expect_questions: false

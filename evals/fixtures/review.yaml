@@ -1,0 +1,87 @@
+# Code-review tasks with known answers. Pass = correct verdict, and for a rejection the
+# findings name the planted defect (any one of defect_terms). Clean diffs test false alarms.
+fixtures:
+  - id: review-off-by-one
+    verdict: reject
+    defect_terms: [off-by-one, off by one, last page, final page, range, boundary, page_count]
+    diff: |
+      --- a/src/pagetrace/extraction.py
+      +++ b/src/pagetrace/extraction.py
+      @@ def page_texts(pdf):
+      -    for index in range(len(pdf)):
+      +    for index in range(len(pdf) - 1):
+               page = pdf[index]
+               yield index + 1, page.get_textpage().get_text_range()
+
+  - id: review-traversal
+    verdict: reject
+    defect_terms: [traversal, "..", escape, outside, symlink, path check, resolve]
+    diff: |
+      --- a/src/pagetrace/storage.py
+      +++ b/src/pagetrace/storage.py
+      @@ def document_path(self, document_id: str) -> Path:
+      -    path = (self.root / "documents" / f"{document_id}.pdf").resolve()
+      -    if not path.is_relative_to((self.root / "documents").resolve()):
+      -        raise DocumentError("Invalid document identifier.")
+      -    return path
+      +    return self.root / "documents" / f"{document_id}.pdf"
+
+  - id: review-swallowed-error
+    verdict: reject
+    defect_terms: [swallow, silent, except, exception, hidden, ignored, bare]
+    diff: |
+      --- a/src/pagetrace/semantic_store.py
+      +++ b/src/pagetrace/semantic_store.py
+      @@ def index_documents(self, document_ids):
+      -    vectors = self.encoder.encode(chunks)
+      +    try:
+      +        vectors = self.encoder.encode(chunks)
+      +    except Exception:
+      +        vectors = []
+
+  - id: review-sql-injection
+    verdict: reject
+    defect_terms: [injection, sql, parameter, placeholder, f-string, interpolat, escape]
+    diff: |
+      --- a/src/pagetrace/storage.py
+      +++ b/src/pagetrace/storage.py
+      @@ def search(self, query: str, document_ids: list[str]):
+      -    rows = self.db.execute(
+      -        "SELECT * FROM chunks WHERE chunks MATCH ? AND document_id IN (SELECT value FROM json_each(?))",
+      -        (query, json.dumps(document_ids)),
+      -    )
+      +    ids = ",".join(f"'{d}'" for d in document_ids)
+      +    rows = self.db.execute(
+      +        f"SELECT * FROM chunks WHERE chunks MATCH '{query}' AND document_id IN ({ids})"
+      +    )
+
+  - id: review-clean-extract
+    verdict: approve
+    defect_terms: []
+    diff: |
+      --- a/src/pagetrace/evaluation.py
+      +++ b/src/pagetrace/evaluation.py
+      @@
+      +def _mean_or_none(values: list[float]) -> float | None:
+      +    return statistics.fmean(values) if values else None
+      +
+       def _aggregate(results):
+      -    recall = statistics.fmean(r.recall for r in results) if results else None
+      -    mrr = statistics.fmean(r.reciprocal_rank for r in results) if results else None
+      +    recall = _mean_or_none([r.recall for r in results])
+      +    mrr = _mean_or_none([r.reciprocal_rank for r in results])
+           return {"recall": recall, "mrr": mrr}
+
+  - id: review-clean-docstring
+    verdict: approve
+    defect_terms: []
+    diff: |
+      --- a/src/pagetrace/chunking.py
+      +++ b/src/pagetrace/chunking.py
+      @@ def chunk_page(text: str, size: int = 800, overlap: int = 120):
+      -    """Split text."""
+      +    """Split one page into overlapping chunks with exact page-local offsets.
+      +
+      +    Offsets index into the original page text, so every chunk can be traced back.
+      +    """
+           step = size - overlap
