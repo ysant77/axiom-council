@@ -17,6 +17,7 @@ from axiom_council.evals.bakeoff import Bakeoff, Contestant
 from axiom_council.evals.fixtures import load_fixtures
 from axiom_council.ledger import CapabilityLedger
 from axiom_council.providers import (
+    OllamaProvider,
     OpenAICompatProvider,
     ProviderError,
     provider_for,
@@ -27,13 +28,14 @@ from axiom_council.registry import Registry
 from axiom_council.router import Router
 from axiom_council.settings import Settings
 
-from .test_bakeoff import GOOD_PLAN, REPO, FakeChat
+from .fake_provider import FakeProvider
+from .test_bakeoff import GOOD_PLAN, REPO
 
 
 def test_provider_is_chosen_by_node_runtime(registry: Registry) -> None:
     node = registry.nodes["mac-m5"]
     provider = provider_for(node, timeout=1)
-    assert isinstance(provider, OpenAICompatProvider)
+    assert isinstance(provider, OllamaProvider)
     provider.close()
     assert {"ollama", "llama.cpp", "vllm", "sglang"} <= set(runtimes())
 
@@ -94,24 +96,24 @@ def test_bakeoff_kind_must_name_a_known_prompt(registry: Registry) -> None:
 def test_bakeoff_uses_model_card_think_unless_overridden(
     registry: Registry, tmp_path: Path
 ) -> None:
-    chat = FakeChat({"plan": json.dumps(GOOD_PLAN), "review": "{}"})
+    chat = FakeProvider({"plan": json.dumps(GOOD_PLAN), "review": "{}"})
     ledger = CapabilityLedger(tmp_path / "ledger.sqlite3")
     bake = Bakeoff(
         registry,
         load_fixtures(REPO / "evals/fixtures"),
-        chat,  # type: ignore[arg-type]
+        chat,
         ledger,
         tmp_path / "r.jsonl",
-        "n1",
+        "mac-m5",
         EstimateMeter(30),
     )
     bake.run([Contestant("gemma4:26b"), Contestant("gpt-oss:20b", "high")])
     ledger.close()
-    thinks = {model: think for model, think in chat.calls}
+    thinks = {model: extra["think"] for model, extra in chat.calls}
     assert thinks == {"gemma4:26b": False, "gpt-oss:20b": "high"}
 
 
 def test_bakeoff_node_comes_from_config(registry: Registry) -> None:
     assert session._node_for(registry, ["gpt-oss:20b"]).node_id == "mac-m5"
-    with pytest.raises(ValueError, match="no enabled ollama node"):
+    with pytest.raises(ValueError, match="no enabled node"):
         session._node_for(registry, ["gpt-oss:20b", "ghost:1"])

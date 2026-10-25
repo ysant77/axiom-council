@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from axiom_council.contracts import InferenceResult, InferenceUsage
+from axiom_council.contracts import InferenceResult, InferenceUsage, ModelProvenance
 from axiom_council.registry import NodeSpec
 
 
@@ -39,6 +39,14 @@ class OpenAICompatProvider:
             raise ProviderError(f"{self.node.node_id}: {exc}") from exc
         return sorted(m["id"] for m in resp.json().get("data", []))
 
+    def describe(self, model_id: str) -> ModelProvenance:
+        """The OpenAI-compatible API reports no model build or engine version."""
+        return ModelProvenance(runtime=self.node.runtime)
+
+    def unload(self, model_id: str) -> bool:
+        """No portable eviction call exists; the next call may be warm."""
+        return False
+
     def chat(
         self,
         *,
@@ -57,7 +65,7 @@ class OpenAICompatProvider:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": False,
-            **(extra or {}),
+            **{k: v for k, v in (extra or {}).items() if k != "think"},  # native-API field
         }
         started = time.perf_counter()
         try:

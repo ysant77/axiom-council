@@ -7,10 +7,12 @@ settings:
     conservatism_sd: 1.0   # skill gate = posterior mean minus this many s.d.
     min_success: 0.55      # skill gate threshold
     max_seconds: null      # optional latency ceiling per task
+    match_harness: false   # true: ignore evidence from other harness versions (RFC 0005)
 
   - name: bakeoff
     num_ctx: 16384
     temperature: 0.3
+    seed: null             # set an integer for seeded sampling; recorded in every result
     sandbox_id: pagetrace
     repair_attempts: 0     # extra attempts after feedback; `council bakeoff --repair N` overrides
     # public_checks: rules the prompt itself states, so their failures may be fed back.

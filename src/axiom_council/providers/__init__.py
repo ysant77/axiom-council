@@ -6,10 +6,12 @@ from axiom_council.providers.factory import (
     register_runtime,
     runtimes,
 )
+from axiom_council.providers.ollama import OllamaProvider
 from axiom_council.providers.openai_compat import OpenAICompatProvider, ProviderError
 
 __all__ = [
     "ChatProvider",
+    "OllamaProvider",
     "OpenAICompatProvider",
     "ProviderError",
     "provider_for",

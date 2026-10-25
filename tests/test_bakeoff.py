@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import httpx
 import pytest
 
 from axiom_council import cli
@@ -13,13 +12,14 @@ from axiom_council.evals import session
 from axiom_council.evals.bakeoff import Bakeoff, CodeContext, Contestant, summarise
 from axiom_council.evals.code_task import verify_code
 from axiom_council.evals.fixtures import CodeFixture, load_fixtures
-from axiom_council.evals.ollama_metrics import ChatMetrics, ChatReply, OllamaChat
 from axiom_council.evals.session import parse_contestants
 from axiom_council.ledger import CapabilityLedger
+from axiom_council.provenance import placement_for
 from axiom_council.registry import Registry
 from axiom_council.sandbox import DockerSandbox, create_snapshot
 from axiom_council.sandbox.runner import Completed
 
+from .fake_provider import FakeProvider
 from .sandbox_helpers import FakeRunner, make_repo, profile
 
 REPO = Path(__file__).resolve().parents[1]
@@ -38,31 +38,14 @@ GOOD_PLAN = {
 }
 
 
-class FakeChat:
-    def __init__(self, replies: dict[str, str]):
-        self.replies = replies
-        self.unloaded: list[str] = []
-        self.calls: list[tuple[str, Any]] = []
-
-    def chat(self, model: str, messages: list[dict[str, str]], **kwargs: Any) -> ChatReply:
-        self.calls.append((model, kwargs["think"]))
-        text = messages[-1]["content"]
-        content = self.replies["review"] if "UNTRUSTED DIFF" in text else self.replies["plan"]
-        load = 5.0 if len(self.calls) == 1 else 0.0
-        return ChatReply(content, "", ChatMetrics(load, 100, 0.5, 50, 2.0, 3.0 + load), "stop")
-
-    def unload(self, model: str) -> None:
-        self.unloaded.append(model)
-
-
 def test_bakeoff_scores_records_and_summarises(registry: Registry, tmp_path: Path) -> None:
     fixtures = load_fixtures(REPO / "evals" / "fixtures")
-    chat = FakeChat({"plan": json.dumps(GOOD_PLAN), "review": '{"verdict": "approve"}'})
+    chat = FakeProvider({"plan": json.dumps(GOOD_PLAN), "review": '{"verdict": "approve"}'})
     ledger = CapabilityLedger(tmp_path / "ledger.sqlite3")
     bake = Bakeoff(
         registry,
         fixtures,
-        chat,  # type: ignore[arg-type]
+        chat,
         ledger,
         tmp_path / "r.jsonl",
         "mac-m5",
@@ -70,14 +53,16 @@ def test_bakeoff_scores_records_and_summarises(registry: Registry, tmp_path: Pat
     )
     records = bake.run([Contestant("qwen3:4b", "low")])
     assert len(records) == 12 and records[0].cold and not records[1].cold
-    assert chat.calls[0] == ("qwen3:4b", "low") and chat.unloaded == ["qwen3:4b"]
+    assert chat.calls[0][0] == "qwen3:4b" and chat.calls[0][1]["think"] == "low"
+    assert chat.unloaded == ["qwen3:4b"]
     reviews = [r for r in records if r.kind == "review"]
     assert sum(r.passed for r in reviews) == 2  # only the two clean diffs are approvals
     assert len((tmp_path / "r.jsonl").read_text().splitlines()) == 12
     assert json.loads((tmp_path / "r.jsonl").read_text().splitlines()[0])["output"]
     from axiom_council.contracts import TaskClass
 
-    assert ledger.stats("qwen3:4b", TaskClass.REVIEW).trials == 6
+    where = placement_for(registry, "qwen3:4b", "mac-m5", think="low")
+    assert ledger.stats(where, TaskClass.REVIEW).trials == 6
     row = summarise(records)[0]
     assert row["review"] == "2/6" and row["cold_load_s"] == 5.0 and row["median_ttft_s"] == 0.5
     ledger.close()
@@ -122,12 +107,12 @@ def test_bakeoff_with_code_context(registry: Registry, tmp_path: Path) -> None:
                         difficulty="easy"),
         )}
     )  # fmt: skip
-    chat = FakeChat({"plan": "```python\ndef add(a, b):\n    return b + a\n```", "review": ""})
+    chat = FakeProvider({"plan": "```python\ndef add(a, b):\n    return b + a\n```", "review": ""})
     ledger = CapabilityLedger(tmp_path / "l.sqlite3")
     bake = Bakeoff(
         registry,
         fixtures,
-        chat,  # type: ignore[arg-type]
+        chat,
         ledger,
         tmp_path / "r.jsonl",
         "mac-m5",
@@ -136,31 +121,6 @@ def test_bakeoff_with_code_context(registry: Registry, tmp_path: Path) -> None:
     )
     assert bake.run([Contestant("qwen3:4b")])[0].passed
     ledger.close()
-
-
-def test_ollama_client_parses_metrics() -> None:
-    seen: list[dict[str, Any]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(json.loads(request.content))
-        if request.url.path == "/api/generate":
-            return httpx.Response(200, json={})
-        return httpx.Response(200, json={
-            "message": {"content": "hi", "thinking": "hmm"}, "done_reason": "stop",
-            "load_duration": 2e9, "prompt_eval_count": 10, "prompt_eval_duration": 5e8,
-            "eval_count": 40, "eval_duration": 2e9, "total_duration": 4.5e9,
-        })  # fmt: skip
-
-    chat = OllamaChat(transport=httpx.MockTransport(handler))
-    reply = chat.chat("m", [], think="low", num_ctx=1024, num_predict=10, temperature=0)
-    assert reply.metrics.ttft_seconds == 2.5 and reply.metrics.decode_tps == 20
-    assert seen[0]["think"] == "low" and seen[0]["options"]["num_ctx"] == 1024
-    chat.chat("m", [], think=None, num_ctx=1, num_predict=1, temperature=0)
-    assert "think" not in seen[1]
-    chat.unload("m")
-    assert seen[2] == {"model": "m", "keep_alive": 0}
-    assert ChatMetrics(0, 0, 0, 0, 0, 0).decode_tps == 0.0
-    chat.close()
 
 
 def test_contestant_parsing_and_cli(
@@ -198,8 +158,8 @@ def test_session_rejects_unknown_models(registry: Registry, tmp_path: Path) -> N
 def test_session_runs_without_code(
     registry: Registry, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    chat = FakeChat({"plan": "{}", "review": "{}"})
-    monkeypatch.setattr(session, "OllamaChat", lambda url: chat)
+    chat = FakeProvider({"plan": "{}", "review": "{}"})
+    monkeypatch.setattr(session, "provider_for", lambda node, **kw: chat)
     monkeypatch.setattr(chat, "close", lambda: None, raising=False)
     records, path = session.run_bakeoff(
         registry, tmp_path, REPO / "evals/fixtures", [Contestant("qwen3:4b")], with_code=False

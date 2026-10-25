@@ -1,5 +1,8 @@
 """Cost-aware, evidence-gated routing of a task to a (model, node) placement.
 
+Evidence is read per placement: model build, quantisation, runtime, node and reasoning
+setting (D-04); with `match_harness`, only evidence from the current harness counts.
+
 Order of authority:
 1. Hard eligibility (modality, context, memory, data trust) — deterministic, never overridden.
 2. Skill gate — a conservative lower bound on measured success probability.
@@ -18,6 +21,7 @@ from dataclasses import dataclass, field
 
 from axiom_council.contracts import DataClass, TaskSpec
 from axiom_council.ledger import CapabilityLedger
+from axiom_council.provenance import harness_hash, placement_for
 from axiom_council.registry import ModelCard, NodeSpec, Registry
 from axiom_council.settings import RouterSettings
 
@@ -78,6 +82,7 @@ class Router:
         self.registry = registry
         self.ledger = ledger
         self.settings = settings or registry.settings.router
+        self._harness = harness_hash(registry) if self.settings.match_harness else None
 
     def _hard_check(
         self,
@@ -113,7 +118,8 @@ class Router:
         skill_gate: bool = True,
     ) -> Candidate | Rejection:
         """Apply the skill gate and latency ceiling, then price one eligible placement."""
-        stats = self.ledger.stats(model.model_id, task.task_class)
+        where = placement_for(self.registry, model.model_id, node.node_id)
+        stats = self.ledger.stats(where, task.task_class, harness_hash=self._harness)
         cfg = self.settings
         prior = model.prior_skill.get(task.task_class, cfg.default_prior)
         p, sd = _posterior(prior, stats.successes, stats.failures, cfg.prior_strength)

@@ -169,9 +169,14 @@ class ApprovalToken(Strict):
 
 
 class InferenceUsage(Strict):
+    """Token counts and timings for one call. A timing the runtime did not report is None."""
+
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
     wall_seconds: float = Field(ge=0)
+    load_seconds: float | None = Field(default=None, ge=0)
+    prompt_seconds: float | None = Field(default=None, ge=0)
+    decode_seconds: float | None = Field(default=None, ge=0)
 
     @property
     def total_tokens(self) -> int:
@@ -185,3 +190,13 @@ class InferenceResult(Strict):
     output: str
     usage: InferenceUsage
     finish_reason: str | None = None
+    reasoning_chars: int | None = Field(default=None, ge=0)
+
+
+class ModelProvenance(Strict):
+    """What a runtime reports about the model build it serves; None where it cannot say."""
+
+    runtime: str
+    runtime_version: str | None = None
+    digest: str | None = None
+    quantization: str | None = None

@@ -9,7 +9,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol
 
-from axiom_council.contracts import InferenceResult
+from axiom_council.contracts import InferenceResult, ModelProvenance
+from axiom_council.providers.ollama import OllamaProvider
 from axiom_council.providers.openai_compat import OpenAICompatProvider, ProviderError
 from axiom_council.registry import NodeSpec
 
@@ -27,6 +28,10 @@ class ChatProvider(Protocol):
         temperature: float = 0.2,
         extra: dict[str, Any] | None = None,
     ) -> InferenceResult: ...
+
+    def describe(self, model_id: str) -> ModelProvenance: ...
+
+    def unload(self, model_id: str) -> bool: ...
 
     def close(self) -> None: ...
 
@@ -62,5 +67,7 @@ def provider_for(node: NodeSpec, **kwargs: Any) -> ChatProvider:
     return cls(node, **kwargs)
 
 
-# Every runtime we serve today speaks the OpenAI-compatible chat API.
-register_runtime("ollama", "llama.cpp", "vllm", "sglang")(OpenAICompatProvider)
+# Ollama uses its native API (reasoning control, timings, model digest); the other
+# runtimes speak the OpenAI-compatible chat API.
+register_runtime("ollama")(OllamaProvider)
+register_runtime("llama.cpp", "vllm", "sglang")(OpenAICompatProvider)
