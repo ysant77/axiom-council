@@ -135,7 +135,7 @@ def _cmd_config(args: argparse.Namespace) -> int:
         if args.action == "seed":
             print(json.dumps(store.seed(_config())))
         else:
-            for kind in ("model", "node", "role", "workspace", "prompt"):
+            for kind in ("model", "node", "role", "workspace", "prompt", "route"):
                 for key in store.active(kind):
                     entry = store.get(kind, key)
                     assert entry is not None

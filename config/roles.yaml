@@ -16,6 +16,11 @@ roles:
     can_ask: [dispatcher, director]
 
   - name: builder
-    description: Proposes patches inside a network-denied sandbox (from R3).
-    capabilities: [llm_inference, read_workspace, propose_patch, run_sandbox]
+    description: Proposes whole-file edits; never runs code (the gatekeeper does).
+    capabilities: [llm_inference, read_workspace, propose_patch]
     can_ask: [dispatcher]
+
+  - name: gatekeeper
+    description: Deterministic council code; applies edits in the sandbox and runs allowlisted checks.
+    capabilities: [read_workspace, run_sandbox]
+    can_ask: [director]

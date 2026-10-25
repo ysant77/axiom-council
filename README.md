@@ -54,6 +54,7 @@ Runtime state lives in `.council/` (override with `AXIOM_COUNCIL_HOME`).
 | `inbox.py` | Director approvals and clarifications |
 | `audit.py` | Append-only, hash-chained audit log |
 | `providers/` | OpenAI-compatible inference client |
+| `bus/` | Envelopes, broker, route policy and interceptors (injection, secrets, canaries) |
 | `council.py` | The run loop tying it together |
 | `cli.py` | The `council` command |
 
@@ -67,4 +68,5 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyt
 All changes reach `main` through a `<type>/<kebab-case>` branch and a pull request with green CI.
 
 CI enforces the same checks and a minimum of 85% coverage. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DISTRIBUTED.md](docs/DISTRIBUTED.md).
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) and
+[docs/DISTRIBUTED.md](docs/DISTRIBUTED.md).

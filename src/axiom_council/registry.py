@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import Field
 
+from axiom_council.bus.interceptors import Route
 from axiom_council.configstore import ConfigStore
 from axiom_council.contracts import Strict, TaskClass
 from axiom_council.policy import RolePolicy, WorkspacePolicy
@@ -76,6 +77,7 @@ class Registry(Strict):
     roles: dict[str, RolePolicy]
     workspaces: dict[str, WorkspacePolicy]
     prompts: dict[str, PromptTemplate] = Field(default_factory=dict)
+    routes: dict[str, Route] = Field(default_factory=dict)
 
     @classmethod
     def from_store(cls, store: ConfigStore) -> Registry:
@@ -85,6 +87,7 @@ class Registry(Strict):
             roles={k: RolePolicy(**v) for k, v in store.active("role").items()},
             workspaces={k: WorkspacePolicy(**v) for k, v in store.active("workspace").items()},
             prompts={k: PromptTemplate(**v) for k, v in store.active("prompt").items()},
+            routes={k: Route(**v) for k, v in store.active("route").items()},
         )
         registry.validate_links()
         return registry
@@ -97,6 +100,11 @@ class Registry(Strict):
         for prompt in self.prompts.values():
             if prompt.role not in self.roles:
                 raise ValueError(f"prompt {prompt.prompt_id} targets unknown role {prompt.role}")
+        parties = self.roles.keys() | {"director"}
+        for route in self.routes.values():
+            unknown = {route.sender, route.recipient} - parties
+            if unknown:
+                raise ValueError(f"route {route.route_id} names unknown roles {sorted(unknown)}")
 
     def prompt_for(self, role: str, task_class: TaskClass) -> PromptTemplate | None:
         """Most specific prompt for a role: task-class match first, then the role default."""
