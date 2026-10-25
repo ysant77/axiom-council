@@ -1,0 +1,34 @@
+# Behaviour-preserving refactors of real PageTrace functions (commit ce592c6).
+# Pass = every returned function within max_lines, target name kept, no new imports,
+# PageTrace's lint and full test suite pass in the network-denied sandbox.
+fixtures:
+  - id: code-evaluate
+    module: src/pagetrace/evaluation.py
+    function: evaluate
+    max_lines: 50
+    difficulty: hard
+  - id: code-validated-dataset
+    module: src/pagetrace/evaluation.py
+    function: _validated_dataset
+    max_lines: 40
+    difficulty: medium
+  - id: code-index-documents
+    module: src/pagetrace/semantic_store.py
+    function: index_documents
+    max_lines: 40
+    difficulty: medium
+  - id: code-download-model
+    module: src/pagetrace/local_model.py
+    function: download_model
+    max_lines: 25
+    difficulty: medium
+  - id: code-main
+    module: src/pagetrace/evaluation.py
+    function: main
+    max_lines: 25
+    difficulty: easy
+  - id: code-evidence-metrics
+    module: src/pagetrace/evaluation.py
+    function: evidence_metrics
+    max_lines: 20
+    difficulty: easy

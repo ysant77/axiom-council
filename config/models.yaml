@@ -60,3 +60,41 @@ models:
       review: 0.5
       draft: 0.6
       code_patch: 0.3
+
+  - model_id: qwen3.8:27b
+    family: qwen3.8
+    licence: Apache-2.0
+    params_b: 27
+    context_tokens: 262144
+    tool_calling: true
+    memory_gb: 18
+    shadow_usd_per_mtok: 0.40
+    reasoning_overhead_tokens: 1500
+    request_defaults: {reasoning_effort: low}
+    prior_skill:
+      triage: 0.8
+      extract: 0.8
+      grounded_answer: 0.8
+      plan: 0.8
+      review: 0.75
+      draft: 0.75
+      code_patch: 0.7
+
+  - model_id: gemma4:26b
+    family: gemma4
+    licence: Apache-2.0
+    params_b: 25.2
+    active_params_b: 3.8
+    context_tokens: 262144
+    modalities: [text, image]
+    tool_calling: true
+    memory_gb: 16
+    shadow_usd_per_mtok: 0.20
+    prior_skill:
+      triage: 0.8
+      extract: 0.75
+      grounded_answer: 0.7
+      plan: 0.7
+      review: 0.7
+      draft: 0.7
+      code_patch: 0.6

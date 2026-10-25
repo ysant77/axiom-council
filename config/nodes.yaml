@@ -8,7 +8,7 @@ nodes:
     memory_budget_gb: 22
     watts_under_load: 30
     trusted_for_private: true
-    serves: [gpt-oss:20b, qwen3:4b, gemma3:4b]
+    serves: [qwen3.8:27b, gemma4:26b, gpt-oss:20b, qwen3:4b, gemma3:4b]
 
   # Windows laptop on the same LAN. Set base_url to its Tailscale name or LAN IP and flip
   # enabled once `council nodes` reports it up. 8 GB of VRAM keeps it to small models at

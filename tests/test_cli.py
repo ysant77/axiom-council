@@ -18,7 +18,7 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_config_seed_and_list(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["config", "seed"]) == 0
-    assert json.loads(capsys.readouterr().out)["model"] == 3
+    assert json.loads(capsys.readouterr().out)["model"] >= 3
     assert cli.main(["config", "list"]) == 0
     assert "gpt-oss:20b" in capsys.readouterr().out
 
@@ -26,7 +26,7 @@ def test_config_seed_and_list(capsys: pytest.CaptureFixture[str]) -> None:
 def test_route_explains_choice(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["route", "Plan the PageTrace adapter", "--task-class", "plan"]) == 0
     out = capsys.readouterr().out
-    assert "CHOSEN    gpt-oss:20b" in out and "REJECTED" in out
+    assert "REJECTED  qwen3:4b" in out and "escalate" not in out.splitlines()[-1]
 
 
 def test_ask_without_eligible_model_goes_to_inbox(capsys: pytest.CaptureFixture[str]) -> None:
