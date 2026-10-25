@@ -25,6 +25,7 @@ KINDS: dict[str, tuple[str, str]] = {
     "workspace": ("workspaces.yaml", "workspace_id"),
     "prompt": ("prompts.yaml", "prompt_id"),
     "route": ("routes.yaml", "route_id"),
+    "sandbox": ("sandboxes.yaml", "sandbox_id"),
 }
 
 _SCHEMA = """
@@ -129,7 +130,7 @@ class ConfigStore:
             if not path.exists():
                 continue
             with path.open(encoding="utf-8") as fh:
-                items = (yaml.safe_load(fh) or {}).get(f"{kind}s", [])
+                items = (yaml.safe_load(fh) or {}).get(path.stem, [])
             for item in items:
                 self.put(kind, str(item[key_field]), item)
             written[kind] = len(items)
