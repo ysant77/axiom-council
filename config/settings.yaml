@@ -27,3 +27,12 @@ settings:
       build: {role: builder, capability: propose_patch}
       gate: {role: gatekeeper, capability: run_sandbox}
       critique: {role: reviewer, capability: llm_inference}
+
+  # Energy measurement and carbon accounting. The grid factor is the average grid emission
+  # factor (GEF) for 2024 published by EMA, Singapore Energy Statistics chapter 2
+  # (https://ema.gov.sg/resources/singapore-energy-statistics/chapter2). Update when EMA
+  # publishes a newer year; reports must cite the year used.
+  - name: energy
+    sample_interval_s: 0.5
+    grid_kg_co2e_per_kwh: 0.402
+    grid_factor_source: "EMA Singapore Energy Statistics, average GEF 2024"

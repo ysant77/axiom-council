@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from axiom_council.configstore import ConfigStore
 from axiom_council.contracts import TaskSpec
+from axiom_council.energy import EstimateMeter
 from axiom_council.evals import session
 from axiom_council.evals.bakeoff import Bakeoff, Contestant
 from axiom_council.evals.fixtures import load_fixtures
@@ -102,6 +103,7 @@ def test_bakeoff_uses_model_card_think_unless_overridden(
         ledger,
         tmp_path / "r.jsonl",
         "n1",
+        EstimateMeter(30),
     )
     bake.run([Contestant("gemma4:26b"), Contestant("gpt-oss:20b", "high")])
     ledger.close()

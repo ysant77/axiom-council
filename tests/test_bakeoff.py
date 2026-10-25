@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from axiom_council import cli
+from axiom_council.energy import EstimateMeter
 from axiom_council.evals import session
 from axiom_council.evals.bakeoff import Bakeoff, CodeContext, Contestant, summarise
 from axiom_council.evals.code_task import verify_code
@@ -58,7 +59,15 @@ def test_bakeoff_scores_records_and_summarises(registry: Registry, tmp_path: Pat
     fixtures = load_fixtures(REPO / "evals" / "fixtures")
     chat = FakeChat({"plan": json.dumps(GOOD_PLAN), "review": '{"verdict": "approve"}'})
     ledger = CapabilityLedger(tmp_path / "ledger.sqlite3")
-    bake = Bakeoff(registry, fixtures, chat, ledger, tmp_path / "r.jsonl", "mac-m5")  # type: ignore[arg-type]
+    bake = Bakeoff(
+        registry,
+        fixtures,
+        chat,  # type: ignore[arg-type]
+        ledger,
+        tmp_path / "r.jsonl",
+        "mac-m5",
+        EstimateMeter(30),
+    )
     records = bake.run([Contestant("qwen3:4b", "low")])
     assert len(records) == 12 and records[0].cold and not records[1].cold
     assert chat.calls[0] == ("qwen3:4b", "low") and chat.unloaded == ["qwen3:4b"]
@@ -115,7 +124,16 @@ def test_bakeoff_with_code_context(registry: Registry, tmp_path: Path) -> None:
     )  # fmt: skip
     chat = FakeChat({"plan": "```python\ndef add(a, b):\n    return b + a\n```", "review": ""})
     ledger = CapabilityLedger(tmp_path / "l.sqlite3")
-    bake = Bakeoff(registry, fixtures, chat, ledger, tmp_path / "r.jsonl", "mac-m5", code=code_ctx)  # type: ignore[arg-type]
+    bake = Bakeoff(
+        registry,
+        fixtures,
+        chat,  # type: ignore[arg-type]
+        ledger,
+        tmp_path / "r.jsonl",
+        "mac-m5",
+        EstimateMeter(30),
+        code=code_ctx,
+    )
     assert bake.run([Contestant("qwen3:4b")])[0].passed
     ledger.close()
 

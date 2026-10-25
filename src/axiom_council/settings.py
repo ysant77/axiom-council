@@ -67,12 +67,19 @@ class PipelineSettings(Strict):
     )
 
 
+class EnergySettings(Strict):
+    sample_interval_s: float = Field(default=0.5, gt=0, le=10)
+    grid_kg_co2e_per_kwh: float = Field(default=0.0, ge=0)
+    grid_factor_source: str = "unset"
+
+
 class Settings(Strict):
     """Every named setting; an unknown name in the store fails validation, never passes silently."""
 
     router: RouterSettings = Field(default_factory=RouterSettings)
     bakeoff: BakeoffSettings = Field(default_factory=BakeoffSettings)
     pipeline: PipelineSettings = Field(default_factory=PipelineSettings)
+    energy: EnergySettings = Field(default_factory=EnergySettings)
 
     @classmethod
     def from_entries(cls, raw: dict[str, dict[str, Any]]) -> Settings:

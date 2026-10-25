@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from axiom_council.contracts import utcnow
+from axiom_council.energy import meter_for
 from axiom_council.evals.bakeoff import Bakeoff, CodeContext, Contestant, RunRecord
 from axiom_council.evals.fixtures import load_fixtures
 from axiom_council.evals.ollama_metrics import OllamaChat
@@ -70,6 +71,7 @@ def run_bakeoff(
             ledger=ledger,
             results_path=results,
             node_id=node.node_id,
+            meter=meter_for(node, registry.settings.energy.sample_interval_s),
             code=_code_context(registry, home, sandbox_id) if with_code else None,
         )
         return bakeoff.run(contestants), results
