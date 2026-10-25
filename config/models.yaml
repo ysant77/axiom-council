@@ -14,6 +14,7 @@ models:
     shadow_usd_per_mtok: 0.30
     reasoning_overhead_tokens: 400
     request_defaults: {reasoning_effort: low}
+    think: low
     prior_skill:
       triage: 0.8
       extract: 0.75
@@ -71,6 +72,7 @@ models:
     shadow_usd_per_mtok: 0.40
     reasoning_overhead_tokens: 1500
     request_defaults: {reasoning_effort: low}
+    think: low
     prior_skill:
       triage: 0.8
       extract: 0.8
@@ -90,6 +92,9 @@ models:
     tool_calling: true
     memory_gb: 16
     shadow_usd_per_mtok: 0.20
+    # Measured 2026-10-25: think=low is not honoured; Gemma 4 reasoned until num_predict ran out
+    # on 11 of 18 bake-off answers (10 empty). Reasoning off until a level control works.
+    think: false
     prior_skill:
       triage: 0.8
       extract: 0.75

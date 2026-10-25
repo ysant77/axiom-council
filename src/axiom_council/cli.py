@@ -10,12 +10,12 @@ from datetime import timedelta
 from pathlib import Path
 
 from axiom_council.audit import AuditLog
-from axiom_council.configstore import ConfigStore
+from axiom_council.configstore import KINDS, ConfigStore
 from axiom_council.contracts import Budget, Capability, TaskClass, TaskSpec
 from axiom_council.council import Council, open_registry
 from axiom_council.evals.bakeoff import summarise
 from axiom_council.evals.session import parse_contestants, run_bakeoff
-from axiom_council.providers import OpenAICompatProvider, ProviderError
+from axiom_council.providers import ProviderError, provider_for
 from axiom_council.sandbox.runner import DockerSandbox
 from axiom_council.sandbox.selftest import selftest
 
@@ -34,7 +34,11 @@ def _cmd_nodes(_: argparse.Namespace) -> int:
         if not node.enabled:
             print(f"{node.node_id:<16} off   {node.runtime:<10} {node.hardware}")
             continue
-        provider = OpenAICompatProvider(node, timeout=5)
+        try:
+            provider = provider_for(node, timeout=5)
+        except ProviderError as exc:
+            print(f"{node.node_id:<16} error {exc}")
+            continue
         try:
             live = set(provider.list_models())
             status = "up"
@@ -139,7 +143,7 @@ def _cmd_config(args: argparse.Namespace) -> int:
         if args.action == "seed":
             print(json.dumps(store.seed(_config())))
         else:
-            for kind in ("model", "node", "role", "workspace", "prompt", "route", "sandbox"):
+            for kind in KINDS:
                 for key in store.active(kind):
                     entry = store.get(kind, key)
                     assert entry is not None

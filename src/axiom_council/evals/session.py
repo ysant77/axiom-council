@@ -10,7 +10,7 @@ from axiom_council.evals.bakeoff import Bakeoff, CodeContext, Contestant, RunRec
 from axiom_council.evals.fixtures import load_fixtures
 from axiom_council.evals.ollama_metrics import OllamaChat
 from axiom_council.ledger import CapabilityLedger
-from axiom_council.registry import Registry
+from axiom_council.registry import NodeSpec, Registry
 from axiom_council.sandbox import DockerSandbox, create_snapshot
 
 
@@ -26,6 +26,14 @@ def parse_contestants(spec: str) -> list[Contestant]:
             value = think
         contestants.append(Contestant(model, value))
     return contestants
+
+
+def _node_for(registry: Registry, model_ids: list[str]) -> NodeSpec:
+    """First enabled Ollama node serving every contestant (timings need Ollama's native API)."""
+    for node in registry.nodes.values():
+        if node.enabled and node.runtime == "ollama" and set(model_ids) <= set(node.serves):
+            return node
+    raise ValueError(f"no enabled ollama node serves all of {model_ids}")
 
 
 def _code_context(registry: Registry, home: Path, sandbox_id: str) -> CodeContext:
@@ -44,14 +52,14 @@ def run_bakeoff(
     contestants: list[Contestant],
     *,
     with_code: bool,
-    sandbox_id: str = "pagetrace",
 ) -> tuple[list[RunRecord], Path]:
     unknown = [c.model_id for c in contestants if c.model_id not in registry.models]
     if unknown:
         raise ValueError(f"models without a model card: {unknown}")
     results = home / "bakeoff" / f"results-{utcnow().strftime('%Y%m%d%H%M%S')}.jsonl"
     results.parent.mkdir(parents=True, exist_ok=True)
-    node = registry.nodes["mac-m5"]
+    node = _node_for(registry, [c.model_id for c in contestants])
+    sandbox_id = registry.settings.bakeoff.sandbox_id
     chat = OllamaChat(node.base_url)
     ledger = CapabilityLedger(home / "ledger.sqlite3")
     try:
@@ -61,6 +69,7 @@ def run_bakeoff(
             chat=chat,
             ledger=ledger,
             results_path=results,
+            node_id=node.node_id,
             code=_code_context(registry, home, sandbox_id) if with_code else None,
         )
         return bakeoff.run(contestants), results

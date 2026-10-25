@@ -105,7 +105,9 @@ def test_untrusted_node_never_sees_private_data(
 def test_latency_ceiling_and_memory_budget(
     registry: Registry, ledger: CapabilityLedger, make_task: Callable[..., TaskSpec]
 ) -> None:
-    slow = Router(registry, ledger, max_seconds=0.001).route(make_task(), prompt_tokens=100)
+    slow = Router(
+        registry, ledger, registry.settings.router.model_copy(update={"max_seconds": 0.001})
+    ).route(make_task(), prompt_tokens=100)
     assert slow.escalate and all("ceiling" in r.reason for r in slow.rejected)
     tiny = registry.nodes["mac-m5"].model_copy(update={"memory_budget_gb": 3.8})
     reg = registry.model_copy(update={"nodes": {"mac-m5": tiny}})

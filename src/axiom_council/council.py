@@ -18,7 +18,7 @@ from axiom_council.contracts import Capability, InferenceResult, TaskSpec, TaskS
 from axiom_council.inbox import Inbox
 from axiom_council.ledger import CapabilityLedger
 from axiom_council.policy import PolicyEngine
-from axiom_council.providers import OpenAICompatProvider
+from axiom_council.providers import ChatProvider, provider_for
 from axiom_council.registry import NodeSpec, Registry
 from axiom_council.router import Router, RoutingDecision
 from axiom_council.tasks import TaskRecord, TaskStore
@@ -46,7 +46,7 @@ def open_registry(home: Path, seed_dir: Path) -> Registry:
         store.close()
 
 
-ProviderFactory = Callable[[NodeSpec], OpenAICompatProvider]
+ProviderFactory = Callable[[NodeSpec], ChatProvider]
 
 
 class Council:
@@ -54,7 +54,7 @@ class Council:
         self,
         registry: Registry,
         home: Path,
-        provider_factory: ProviderFactory = OpenAICompatProvider,
+        provider_factory: ProviderFactory = provider_for,
     ):
         self.registry = registry
         self._provider_factory = provider_factory

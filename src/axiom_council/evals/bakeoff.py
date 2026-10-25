@@ -25,16 +25,12 @@ from axiom_council.registry import PromptTemplate, Registry
 from axiom_council.sandbox import DockerSandbox, Snapshot
 
 Fixture = PlanFixture | ReviewFixture | CodeFixture
-KINDS: dict[str, tuple[str, TaskClass, int]] = {
-    # kind: (prompt id, ledger task class, max output tokens incl. reasoning)
-    "plan": ("dispatcher.plan", TaskClass.PLAN, 4000),
-    "review": ("reviewer.review", TaskClass.REVIEW, 2500),
-    "code": ("builder.refactor", TaskClass.CODE_PATCH, 8000),
-}
 
 
 @dataclass(frozen=True)
 class Contestant:
+    """A model under test; think=None uses the model card's reasoning setting."""
+
     model_id: str
     think: bool | str | None = None
 
@@ -73,13 +69,12 @@ class Bakeoff:
     chat: OllamaChat
     ledger: CapabilityLedger
     results_path: Path
+    node_id: str
     code: CodeContext | None = None
-    num_ctx: int = 16384
-    temperature: float = 0.3
     records: list[RunRecord] = field(default_factory=list)
 
     def _prompt(self, kind: str) -> PromptTemplate:
-        return self.registry.prompts[KINDS[kind][0]]
+        return self.registry.prompts[self.registry.settings.bakeoff.kinds[kind].prompt_id]
 
     def _messages(self, kind: str, fixture: Fixture) -> list[dict[str, str]]:
         prompt = self._prompt(kind)
@@ -119,14 +114,20 @@ class Bakeoff:
                 self._run_one(contestant, kind, fixture, cold=index == 0)
         return self.records
 
+    def _think(self, contestant: Contestant) -> bool | str | None:
+        if contestant.think is not None:
+            return contestant.think
+        return self.registry.models[contestant.model_id].think
+
     def _run_one(self, contestant: Contestant, kind: str, fixture: Fixture, cold: bool) -> None:
+        cfg = self.registry.settings.bakeoff
         reply = self.chat.chat(
             contestant.model_id,
             self._messages(kind, fixture),
-            think=contestant.think,
-            num_ctx=self.num_ctx,
-            num_predict=KINDS[kind][2],
-            temperature=self.temperature,
+            think=self._think(contestant),
+            num_ctx=cfg.num_ctx,
+            num_predict=cfg.kinds[kind].num_predict,
+            temperature=cfg.temperature,
         )
         run_id = f"{contestant.model_id.replace(':', '-')}-{fixture.id}"
         score = self._score(fixture, reply, run_id)
@@ -140,7 +141,7 @@ class Bakeoff:
             thinking_chars=len(reply.thinking), done_reason=reply.done_reason,
             output=reply.content,
         )  # fmt: skip
-        self._persist(record, KINDS[kind][1])
+        self._persist(record, cfg.kinds[kind].task_class)
 
     def _persist(self, record: RunRecord, task_class: TaskClass) -> None:
         self.records.append(record)
@@ -149,7 +150,7 @@ class Bakeoff:
         self.ledger.record(
             task_id=f"bakeoff-{record.fixture_id}",
             model_id=record.model_id,
-            node_id="mac-m5",
+            node_id=self.node_id,
             task_class=task_class,
             success=record.passed,
             verified_by="bakeoff-scorer",
@@ -167,7 +168,7 @@ def summarise(records: list[RunRecord]) -> list[dict[str, Any]]:
         warm = [r for r in runs if not r.cold] or runs
         row: dict[str, Any] = {"model": model, "passed": sum(r.passed for r in runs)}
         row["total"] = len(runs)
-        for kind in KINDS:
+        for kind in dict.fromkeys(r.kind for r in runs):
             subset = [r for r in runs if r.kind == kind]
             if subset:
                 row[kind] = f"{sum(r.passed for r in subset)}/{len(subset)}"
