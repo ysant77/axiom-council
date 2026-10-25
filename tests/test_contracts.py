@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import timedelta
 
@@ -68,3 +71,36 @@ def test_approval_token_is_bound_to_task_action_artifact_and_time() -> None:
 
 def test_usage_total() -> None:
     assert InferenceUsage(prompt_tokens=3, completion_tokens=4, wall_seconds=0.1).total_tokens == 7
+
+
+_DIGEST_SCRIPT = """
+import json, sys
+from axiom_council.contracts import TaskSpec
+spec = TaskSpec.model_validate_json(sys.stdin.read())
+again = TaskSpec.model_validate(json.loads(spec.model_dump_json()))  # store round-trip
+print(spec.digest(), again.digest())
+"""
+
+
+def test_digest_does_not_depend_on_hash_seed(make_task: Callable[..., TaskSpec]) -> None:
+    """Regression: capability sets serialised in hash-seed order, so a multi-capability task
+    could fail its own tamper check after being stored and reloaded."""
+    task = make_task(
+        workspace_id="council",
+        allowed_capabilities=frozenset(
+            {Capability.LLM_INFERENCE, Capability.PROPOSE_PATCH, Capability.RUN_SANDBOX}
+        ),
+        forbidden_capabilities=frozenset({Capability.MERGE, Capability.SPEND_MONEY}),
+    )
+    digests = set()
+    for seed in range(8):
+        out = subprocess.run(
+            [sys.executable, "-c", _DIGEST_SCRIPT],
+            input=task.model_dump_json(),
+            capture_output=True,
+            text=True,
+            check=True,
+            env={**os.environ, "PYTHONHASHSEED": str(seed)},
+        ).stdout.split()
+        digests.update(out)
+    assert digests == {task.digest()}
