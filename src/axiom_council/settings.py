@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import Field
 
-from axiom_council.contracts import Strict, TaskClass
+from axiom_council.contracts import Capability, Strict, TaskClass
 
 
 class RouterSettings(Strict):
@@ -47,11 +47,32 @@ class BakeoffSettings(Strict):
     )
 
 
+class NodeGrant(Strict):
+    """Which role a pipeline node acts as and the one capability it exercises."""
+
+    role: str
+    capability: Capability
+
+
+class PipelineSettings(Strict):
+    approval_action: str = "apply_patch"
+    max_build_attempts: int = Field(default=2, ge=1, le=5)
+    nodes: dict[str, NodeGrant] = Field(
+        default_factory=lambda: {
+            "plan": NodeGrant(role="dispatcher", capability=Capability.LLM_INFERENCE),
+            "build": NodeGrant(role="builder", capability=Capability.PROPOSE_PATCH),
+            "gate": NodeGrant(role="gatekeeper", capability=Capability.RUN_SANDBOX),
+            "critique": NodeGrant(role="reviewer", capability=Capability.LLM_INFERENCE),
+        }
+    )
+
+
 class Settings(Strict):
     """Every named setting; an unknown name in the store fails validation, never passes silently."""
 
     router: RouterSettings = Field(default_factory=RouterSettings)
     bakeoff: BakeoffSettings = Field(default_factory=BakeoffSettings)
+    pipeline: PipelineSettings = Field(default_factory=PipelineSettings)
 
     @classmethod
     def from_entries(cls, raw: dict[str, dict[str, Any]]) -> Settings:

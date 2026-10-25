@@ -16,3 +16,14 @@ settings:
       plan: {prompt_id: dispatcher.plan, task_class: plan, num_predict: 4000}
       review: {prompt_id: reviewer.review, task_class: review, num_predict: 2500}
       code: {prompt_id: builder.refactor, task_class: code_patch, num_predict: 8000}
+
+  # M4 pipeline: each graph node acts as one role and exercises one capability; the policy
+  # engine checks both before the node runs. A node missing here cannot be added to a graph.
+  - name: pipeline
+    approval_action: apply_patch
+    max_build_attempts: 2
+    nodes:
+      plan: {role: dispatcher, capability: llm_inference}
+      build: {role: builder, capability: propose_patch}
+      gate: {role: gatekeeper, capability: run_sandbox}
+      critique: {role: reviewer, capability: llm_inference}
