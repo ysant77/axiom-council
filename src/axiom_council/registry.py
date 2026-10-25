@@ -60,6 +60,9 @@ class NodeSpec(Strict):
     usd_per_kwh: float = Field(default=0.30, ge=0)
     trusted_for_private: bool = False
     enabled: bool = True
+    energy_meter: str = Field(
+        default="estimate", description="macmon, battery, nvidia-smi or estimate"
+    )
 
 
 class PromptTemplate(Strict):

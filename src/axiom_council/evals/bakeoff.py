@@ -16,6 +16,7 @@ from typing import Any
 
 from axiom_council.bus.spotlight import fence
 from axiom_council.contracts import TaskClass
+from axiom_council.energy import EnergyMeter, EnergyReading
 from axiom_council.evals.code_task import code_messages, verify_code
 from axiom_council.evals.fixtures import CodeFixture, FixtureSet, PlanFixture, ReviewFixture
 from axiom_council.evals.ollama_metrics import ChatReply, OllamaChat
@@ -53,6 +54,12 @@ class RunRecord:
     thinking_chars: int
     done_reason: str | None
     output: str = ""
+    energy_wh: float = 0.0
+    mean_watts: float = 0.0
+    energy_method: str = "none"
+    energy_scope: str = "none"
+    energy_estimated: bool = True
+    co2e_g: float = 0.0
 
 
 @dataclass
@@ -70,6 +77,7 @@ class Bakeoff:
     ledger: CapabilityLedger
     results_path: Path
     node_id: str
+    meter: EnergyMeter
     code: CodeContext | None = None
     records: list[RunRecord] = field(default_factory=list)
 
@@ -121,14 +129,17 @@ class Bakeoff:
 
     def _run_one(self, contestant: Contestant, kind: str, fixture: Fixture, cold: bool) -> None:
         cfg = self.registry.settings.bakeoff
-        reply = self.chat.chat(
-            contestant.model_id,
-            self._messages(kind, fixture),
-            think=self._think(contestant),
-            num_ctx=cfg.num_ctx,
-            num_predict=cfg.kinds[kind].num_predict,
-            temperature=cfg.temperature,
-        )
+        messages = self._messages(kind, fixture)
+        with self.meter.measure() as measured:  # inference only, not the sandbox gates
+            reply = self.chat.chat(
+                contestant.model_id,
+                messages,
+                think=self._think(contestant),
+                num_ctx=cfg.num_ctx,
+                num_predict=cfg.kinds[kind].num_predict,
+                temperature=cfg.temperature,
+            )
+        assert measured.reading is not None
         run_id = f"{contestant.model_id.replace(':', '-')}-{fixture.id}"
         score = self._score(fixture, reply, run_id)
         m = reply.metrics
@@ -139,9 +150,20 @@ class Bakeoff:
             prompt_tokens=m.prompt_tokens, output_tokens=m.output_tokens,
             decode_tps=m.decode_tps, total_seconds=m.total_seconds,
             thinking_chars=len(reply.thinking), done_reason=reply.done_reason,
-            output=reply.content,
+            output=reply.content, **self._energy(measured.reading),
         )  # fmt: skip
         self._persist(record, cfg.kinds[kind].task_class)
+
+    def _energy(self, reading: EnergyReading) -> dict[str, Any]:
+        factor = self.registry.settings.energy.grid_kg_co2e_per_kwh
+        return {
+            "energy_wh": round(reading.watt_hours, 4),
+            "mean_watts": round(reading.mean_watts, 2),
+            "energy_method": reading.method,
+            "energy_scope": reading.scope,
+            "energy_estimated": reading.estimated,
+            "co2e_g": round(reading.watt_hours * factor, 4),  # Wh x kg/kWh = g
+        }
 
     def _persist(self, record: RunRecord, task_class: TaskClass) -> None:
         self.records.append(record)
@@ -176,5 +198,8 @@ def summarise(records: list[RunRecord]) -> list[dict[str, Any]]:
         row["median_ttft_s"] = round(median(r.ttft_seconds for r in warm), 2)
         row["decode_tps"] = round(fmean(r.decode_tps for r in runs), 1)
         row["total_minutes"] = round(sum(r.total_seconds for r in runs) / 60, 1)
+        row["energy_wh"] = round(sum(r.energy_wh for r in runs), 2)
+        row["co2e_g"] = round(sum(r.co2e_g for r in runs), 2)
+        row["energy_methods"] = sorted({r.energy_method for r in runs})
         rows.append(row)
     return rows

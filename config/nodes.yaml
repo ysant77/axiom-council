@@ -8,6 +8,7 @@ nodes:
     memory_budget_gb: 22
     watts_under_load: 30
     trusted_for_private: true
+    energy_meter: macmon   # SoC power, no sudo; battery is the whole-system cross-check
     serves: [qwen3.8:27b, gemma4:26b, gpt-oss:20b, qwen3:4b, gemma3:4b]
 
   # Windows laptop on the same LAN. Set base_url to its Tailscale name or LAN IP and flip
@@ -20,5 +21,6 @@ nodes:
     memory_budget_gb: 7.5
     watts_under_load: 110
     trusted_for_private: true
+    energy_meter: nvidia-smi
     enabled: false
     serves: [qwen3:4b, gemma3:4b]
