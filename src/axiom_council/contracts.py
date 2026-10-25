@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 SCHEMA_VERSION: Literal[1] = 1
 
@@ -126,6 +126,11 @@ class TaskSpec(Strict):
         if self.task_class is TaskClass.CODE_PATCH and not (self.repo_ref and self.base_commit_sha):
             raise ValueError("code_patch tasks must pin repo_ref and base_commit_sha")
         return self
+
+    @field_serializer("allowed_capabilities", "forbidden_capabilities")
+    def _sorted_capabilities(self, value: frozenset[Capability]) -> list[str]:
+        """Sets serialise in hash-seed order; sorting keeps the stored spec and digest stable."""
+        return sorted(c.value for c in value)
 
     def digest(self) -> str:
         return content_hash(self.model_dump(mode="json"))
