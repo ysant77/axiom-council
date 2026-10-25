@@ -56,6 +56,7 @@ class RunRecord:
     total_seconds: float
     thinking_chars: int
     done_reason: str | None
+    output: str = ""
 
 
 @dataclass
@@ -137,6 +138,7 @@ class Bakeoff:
             prompt_tokens=m.prompt_tokens, output_tokens=m.output_tokens,
             decode_tps=m.decode_tps, total_seconds=m.total_seconds,
             thinking_chars=len(reply.thinking), done_reason=reply.done_reason,
+            output=reply.content,
         )  # fmt: skip
         self._persist(record, KINDS[kind][1])
 

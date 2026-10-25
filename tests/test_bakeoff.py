@@ -65,6 +65,7 @@ def test_bakeoff_scores_records_and_summarises(registry: Registry, tmp_path: Pat
     reviews = [r for r in records if r.kind == "review"]
     assert sum(r.passed for r in reviews) == 2  # only the two clean diffs are approvals
     assert len((tmp_path / "r.jsonl").read_text().splitlines()) == 12
+    assert json.loads((tmp_path / "r.jsonl").read_text().splitlines()[0])["output"]
     from axiom_council.contracts import TaskClass
 
     assert ledger.stats("qwen3:4b", TaskClass.REVIEW).trials == 6
