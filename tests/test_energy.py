@@ -147,4 +147,4 @@ def test_bakeoff_records_energy_and_carbon(registry: Registry, tmp_path: Path) -
     ledger.close()
     assert record.energy_method == "estimate" and record.energy_estimated
     factor = registry.settings.energy.grid_kg_co2e_per_kwh
-    assert factor > 0 and record.co2e_g == pytest.approx(record.energy_wh * factor, rel=1e-2)
+    assert factor > 0 and record.co2e_g == pytest.approx(record.energy_wh * factor, abs=1e-4)

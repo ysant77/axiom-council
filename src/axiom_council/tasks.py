@@ -38,9 +38,13 @@ CREATE TABLE IF NOT EXISTS tasks (
     inbox_item TEXT,
     reason TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    pinned_model TEXT,
+    pinned_node TEXT
 );
 """
+# Columns added after the first schema; opened stores are migrated in place.
+_ADDED_COLUMNS = {"pinned_model": "TEXT", "pinned_node": "TEXT"}
 
 
 class TaskStateError(RuntimeError):
@@ -56,6 +60,8 @@ class TaskRecord:
     state: TaskState
     inbox_item: str | None
     reason: str | None
+    pinned_model: str | None = None
+    pinned_node: str | None = None
 
 
 class TaskStore:
@@ -63,6 +69,11 @@ class TaskStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path)
         self._db.executescript(_SCHEMA)
+        existing = {row[1] for row in self._db.execute("PRAGMA table_info(tasks)")}
+        with self._db:
+            for name, kind in _ADDED_COLUMNS.items():
+                if name not in existing:
+                    self._db.execute(f"ALTER TABLE tasks ADD COLUMN {name} {kind}")
 
     def close(self) -> None:
         self._db.close()
@@ -72,7 +83,9 @@ class TaskStore:
         try:
             with self._db:
                 self._db.execute(
-                    "INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
+                    "INSERT INTO tasks (task_id, idempotency_key, spec, spec_digest, user_input,"
+                    " role, output_tokens, state, created_at, updated_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         spec.task_id, spec.idempotency_key, spec.model_dump_json(),
                         spec.digest(), user_input, role, output_tokens, str(S.DRAFT), now, now,
@@ -83,8 +96,8 @@ class TaskStore:
 
     def get(self, task_id: str) -> TaskRecord:
         row = self._db.execute(
-            "SELECT spec, spec_digest, user_input, role, output_tokens, state, inbox_item, reason"
-            " FROM tasks WHERE task_id = ?",
+            "SELECT spec, spec_digest, user_input, role, output_tokens, state, inbox_item, reason,"
+            " pinned_model, pinned_node FROM tasks WHERE task_id = ?",
             (task_id,),
         ).fetchone()
         if row is None:
@@ -92,7 +105,18 @@ class TaskStore:
         spec = TaskSpec.model_validate_json(row[0])
         if spec.digest() != row[1]:
             raise TaskStateError(f"stored spec for {task_id} no longer matches its digest")
-        return TaskRecord(spec, row[2], row[3], row[4], S(row[5]), row[6], row[7])
+        return TaskRecord(spec, row[2], row[3], row[4], S(row[5]), row[6], row[7], row[8], row[9])
+
+    def pin(self, task_id: str, model_id: str, node_id: str) -> None:
+        """Record the placement shown to the director; only while the task is being routed."""
+        if self.get(task_id).state is not S.ROUTED:
+            raise TaskStateError(f"{task_id}: a placement can only be pinned while routed")
+        with self._db:
+            self._db.execute(
+                "UPDATE tasks SET pinned_model = ?, pinned_node = ?, updated_at = ?"
+                " WHERE task_id = ?",
+                (model_id, node_id, utcnow().isoformat(), task_id),
+            )
 
     def transition(
         self,
