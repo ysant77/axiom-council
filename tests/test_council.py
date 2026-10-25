@@ -45,7 +45,7 @@ def test_low_risk_task_runs_and_is_audited(
     council = Council(registry, tmp_path, _factory(_ok))
     outcome = council.run(make_task(), "Summarise: attention replaces recurrence.")
     council.close()
-    assert outcome.state is TaskState.RUNNING and outcome.result is not None
+    assert outcome.state is TaskState.COMPLETED and outcome.result is not None
     assert outcome.result.output.startswith("echo:")
     assert outcome.result.usage.total_tokens == 15
     events = [r["event"] for r in council.audit.for_task(outcome.result.task_id)]

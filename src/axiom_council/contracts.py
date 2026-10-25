@@ -84,6 +84,7 @@ class TaskState(StrEnum):
     AWAITING_APPROVAL = "awaiting_approval"
     APPROVED = "approved"
     RUNNING = "running"
+    COMPLETED = "completed"
     VERIFIED = "verified"
     FAILED = "failed"
     REJECTED = "rejected"
