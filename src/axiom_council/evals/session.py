@@ -3,6 +3,7 @@ PageTrace sandbox for code fixtures."""
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 from axiom_council.contracts import utcnow
@@ -53,11 +54,13 @@ def run_bakeoff(
     contestants: list[Contestant],
     *,
     with_code: bool,
+    split: str = "calibration",
 ) -> tuple[list[RunRecord], Path]:
     unknown = [c.model_id for c in contestants if c.model_id not in registry.models]
     if unknown:
         raise ValueError(f"models without a model card: {unknown}")
-    results = home / "bakeoff" / f"results-{utcnow().strftime('%Y%m%d%H%M%S')}.jsonl"
+    run_id = f"{utcnow().strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    results = home / "bakeoff" / f"results-{run_id}.jsonl"  # unique per run, never reused
     results.parent.mkdir(parents=True, exist_ok=True)
     node = _node_for(registry, [c.model_id for c in contestants])
     sandbox_id = registry.settings.bakeoff.sandbox_id
@@ -73,6 +76,7 @@ def run_bakeoff(
             node_id=node.node_id,
             meter=meter_for(node, registry.settings.energy.sample_interval_s),
             code=_code_context(registry, home, sandbox_id) if with_code else None,
+            split=split,
         )
         return bakeoff.run(contestants), results
     finally:

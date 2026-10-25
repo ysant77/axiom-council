@@ -14,7 +14,14 @@ from pathlib import Path
 
 from axiom_council.audit import AuditLog
 from axiom_council.configstore import ConfigStore
-from axiom_council.contracts import Capability, InferenceResult, TaskSpec, TaskState, utcnow
+from axiom_council.contracts import (
+    Capability,
+    InferenceResult,
+    TaskSpec,
+    TaskState,
+    content_hash,
+    utcnow,
+)
 from axiom_council.inbox import Inbox
 from axiom_council.ledger import CapabilityLedger
 from axiom_council.policy import PolicyEngine
@@ -47,6 +54,22 @@ def open_registry(home: Path, seed_dir: Path) -> Registry:
 
 
 ProviderFactory = Callable[[NodeSpec], ChatProvider]
+
+
+def approval_artifact(registry: Registry, spec: TaskSpec, model_id: str, node_id: str) -> str:
+    """What an execute approval covers: the exact task plus the exact placement and its config.
+
+    Any change to the spec, the model card (incl. request defaults and reasoning settings) or
+    the node spec (incl. URL and runtime) changes the hash, so an old approval stops working.
+    Raises KeyError if the model or node no longer exists.
+    """
+    return content_hash(
+        {
+            "spec": spec.digest(),
+            "model": registry.models[model_id].model_dump(mode="json"),
+            "node": registry.nodes[node_id].model_dump(mode="json"),
+        }
+    )
 
 
 class Council:
@@ -115,14 +138,17 @@ class Council:
 
     def _hold(self, task: TaskSpec, decision: RoutingDecision) -> RunOutcome:
         """Park the task in the director's inbox instead of running it."""
-        if decision.chosen is None:
-            action, state = "override_routing", S.AWAITING_CLARIFICATION
+        chosen = decision.chosen
+        if chosen is None:
+            action, state, artifact = "override_routing", S.AWAITING_CLARIFICATION, task.digest()
             summary = "No eligible model placement; choose a model or revise the task."
         else:
             action, state = "execute", S.AWAITING_APPROVAL
-            summary = f"{task.objective[:120]} -> {decision.chosen.model_id}"
+            self.tasks.pin(task.task_id, chosen.model_id, chosen.node_id)
+            artifact = approval_artifact(self.registry, task, chosen.model_id, chosen.node_id)
+            summary = f"{task.objective[:120]} -> {chosen.model_id} @ {chosen.node_id}"
         item = self.inbox.request_approval(
-            task_id=task.task_id, action=action, artifact_hash=task.digest(), summary=summary
+            task_id=task.task_id, action=action, artifact_hash=artifact, summary=summary
         )
         self.tasks.transition(task.task_id, state, inbox_item=item.item_id)
         self.audit.append("director_requested", task.task_id, "council", item=item.item_id)
@@ -158,18 +184,44 @@ class Council:
         self.tasks.transition(task.task_id, S.COMPLETED)
         return RunOutcome(S.COMPLETED, decision, result)
 
-    def _dispatch(self, record: TaskRecord, *, approved: bool) -> RunOutcome:
+    def _dispatch(self, record: TaskRecord) -> RunOutcome:
         """Route an admitted task, then hold it for the director or execute it."""
         messages = self._messages(record)
         decision = self._route(record, messages)
         task = record.spec
-        if not approved:
-            self.tasks.transition(task.task_id, S.ROUTED)
-        if decision.chosen is None or (
-            not approved and self.policy.check_task(task).needs_approval
-        ):
+        self.tasks.transition(task.task_id, S.ROUTED)
+        if decision.chosen is None or self.policy.check_task(task).needs_approval:
             return self._hold(task, decision)
         return self._infer(task, decision, messages, record.output_tokens)
+
+    def _run_pinned(self, record: TaskRecord) -> RunOutcome:
+        """Execute an approved task on its approved placement; never route it again."""
+        assert record.pinned_model is not None
+        assert record.pinned_node is not None
+        messages = self._messages(record)
+        decision = self.router.check_placement(
+            record.spec, record.pinned_model, record.pinned_node,
+            prompt_tokens=max(1, sum(len(m["content"]) for m in messages) // 4),
+            output_tokens=record.output_tokens,
+        )  # fmt: skip
+        self.audit.append(
+            "routed", record.spec.task_id, "router", pinned=True,
+            chosen=asdict(decision.chosen) if decision.chosen else None,
+            rejected=[asdict(r) for r in decision.rejected],
+        )  # fmt: skip
+        if decision.chosen is None:
+            return self._hold(record.spec, decision)
+        return self._infer(record.spec, decision, messages, record.output_tokens)
+
+    def _approved_artifact(self, record: TaskRecord) -> str | None:
+        if record.pinned_model is None or record.pinned_node is None:
+            return None
+        try:
+            return approval_artifact(
+                self.registry, record.spec, record.pinned_model, record.pinned_node
+            )
+        except KeyError:
+            return None
 
     def run(
         self, task: TaskSpec, user_input: str, *, role: str = "worker", output_tokens: int = 1024
@@ -179,7 +231,7 @@ class Council:
         reasons = self._admit(task, role)
         if reasons:
             return RunOutcome(S.POLICY_REJECTED, reasons=reasons)
-        return self._dispatch(self.tasks.get(task.task_id), approved=False)
+        return self._dispatch(self.tasks.get(task.task_id))
 
     def resume(self, task_id: str, *, now: datetime | None = None) -> RunOutcome:
         """Continue a task the director decided on, verifying the stored approval token."""
@@ -190,13 +242,17 @@ class Council:
         if item.status == "rejected":
             self.tasks.transition(task_id, S.REJECTED, reason=item.response)
             return RunOutcome(S.REJECTED, reasons=(item.response or "rejected",))
-        token = item.token
+        token, artifact = item.token, self._approved_artifact(record)
         moment = now or utcnow()
-        if token is None or not token.authorises(task_id, "execute", record.spec.digest(), moment):
+        if (
+            token is None
+            or artifact is None
+            or not token.authorises(task_id, "execute", artifact, moment)
+        ):
             self.audit.append("approval_invalid", task_id, "council", item=item.item_id)
             raise PermissionError(f"{task_id} has no valid approval for this exact task")
         self.tasks.transition(task_id, S.APPROVED)
         self.audit.append("task_resumed", task_id, token.approver, token=token.token_id)
         if self._admit(record.spec, record.role):
             return RunOutcome(S.POLICY_REJECTED, reasons=("policy changed since approval",))
-        return self._dispatch(record, approved=True)
+        return self._run_pinned(record)

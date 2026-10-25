@@ -109,6 +109,8 @@ class Router:
         node: NodeSpec,
         prompt_tokens: int,
         output_tokens: int,
+        *,
+        skill_gate: bool = True,
     ) -> Candidate | Rejection:
         """Apply the skill gate and latency ceiling, then price one eligible placement."""
         stats = self.ledger.stats(model.model_id, task.task_class)
@@ -116,7 +118,7 @@ class Router:
         prior = model.prior_skill.get(task.task_class, cfg.default_prior)
         p, sd = _posterior(prior, stats.successes, stats.failures, cfg.prior_strength)
         p_lower = max(0.0, p - cfg.conservatism_sd * sd)
-        if p_lower < cfg.min_success:
+        if skill_gate and p_lower < cfg.min_success:
             return Rejection(
                 model.model_id,
                 node.node_id,
@@ -146,6 +148,40 @@ class Router:
             seconds_per_success=seconds / p,
             gb_seconds_per_success=seconds * model.memory_gb / p,
         )
+
+    def check_placement(
+        self,
+        task: TaskSpec,
+        model_id: str,
+        node_id: str,
+        *,
+        prompt_tokens: int,
+        output_tokens: int = 1024,
+        modalities: frozenset[str] = frozenset({"text"}),
+    ) -> RoutingDecision:
+        """Re-check one fixed placement (an approved one) without choosing another.
+
+        Hard eligibility still applies; the skill gate does not, because the director has
+        already approved this placement. No alternative is ever proposed.
+        """
+        node = self.registry.nodes.get(node_id)
+        model = self.registry.models.get(model_id)
+        if node is None or model is None or not node.enabled or model_id not in node.serves:
+            outcome: Candidate | Rejection = Rejection(model_id, node_id, "placement unavailable")
+        else:
+            reason = self._hard_check(task, model, node, modalities, prompt_tokens, output_tokens)
+            outcome = (
+                Rejection(model_id, node_id, reason)
+                if reason
+                else self._score(task, model, node, prompt_tokens, output_tokens, skill_gate=False)
+            )
+        chosen = outcome if isinstance(outcome, Candidate) else None
+        rejected = () if chosen else (outcome,)
+        return RoutingDecision(
+            task_id=task.task_id, chosen=chosen, ranked=(chosen,) if chosen else (),
+            rejected=rejected, escalate=chosen is None,  # type: ignore[arg-type]
+            notes=("approved placement re-checked",),
+        )  # fmt: skip
 
     def route(
         self,

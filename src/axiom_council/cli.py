@@ -187,6 +187,7 @@ def _cmd_bakeoff(args: argparse.Namespace) -> int:
         Path(args.fixtures),
         parse_contestants(args.models),
         with_code=not args.skip_code,
+        split=args.split,
     )
     for row in summarise(records):
         print(json.dumps(row))
@@ -282,6 +283,12 @@ def _add_infra_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     bakeoff.add_argument("--models", required=True, help="model[=think],... e.g. qwen3.8:27b=low")
     bakeoff.add_argument("--fixtures", default="evals/fixtures")
     bakeoff.add_argument("--skip-code", action="store_true", help="skip sandboxed code fixtures")
+    bakeoff.add_argument(
+        "--split",
+        choices=["development", "calibration", "holdout"],
+        default="calibration",
+        help="calibration updates routing; development and holdout never do",
+    )
     bakeoff.set_defaults(fn=_cmd_bakeoff)
 
 

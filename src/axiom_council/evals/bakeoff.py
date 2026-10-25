@@ -79,6 +79,7 @@ class Bakeoff:
     node_id: str
     meter: EnergyMeter
     code: CodeContext | None = None
+    split: str = "calibration"  # development | calibration | holdout
     records: list[RunRecord] = field(default_factory=list)
 
     def _prompt(self, kind: str) -> PromptTemplate:
@@ -165,12 +166,21 @@ class Bakeoff:
             "co2e_g": round(reading.watt_hours * factor, 4),  # Wh x kg/kWh = g
         }
 
+    @property
+    def run_id(self) -> str:
+        """One results file per run; its name identifies the run in the ledger."""
+        return self.results_path.stem
+
     def _persist(self, record: RunRecord, task_class: TaskClass) -> None:
         self.records.append(record)
         with self.results_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(asdict(record)) + "\n")
+            fh.write(
+                json.dumps({**asdict(record), "run_id": self.run_id, "split": self.split}) + "\n"
+            )
+        if self.split == "holdout":
+            return  # holdout results are reported, never fed to routing
         self.ledger.record(
-            task_id=f"bakeoff-{record.fixture_id}",
+            task_id=f"{self.run_id}-{record.fixture_id}",
             model_id=record.model_id,
             node_id=self.node_id,
             task_class=task_class,
@@ -178,6 +188,9 @@ class Bakeoff:
             verified_by="bakeoff-scorer",
             wall_seconds=record.total_seconds,
             total_tokens=record.prompt_tokens + record.output_tokens,
+            split=self.split,
+            run_id=self.run_id,
+            item_key=f"bakeoff:{record.fixture_id}",
         )
 
 

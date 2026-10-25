@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from axiom_council.contracts import Budget, RiskClass, TaskSpec, TaskState
-from axiom_council.council import Council, open_registry
+from axiom_council.council import Council, approval_artifact, open_registry
 from axiom_council.providers import OpenAICompatProvider, ProviderError
 from axiom_council.registry import NodeSpec, Registry
 
@@ -72,7 +72,10 @@ def test_risky_task_waits_for_director(
     outcome = council.run(task, "Answer from evidence", output_tokens=256)
     council.close()
     assert outcome.state is TaskState.AWAITING_APPROVAL and outcome.inbox_item
-    assert council.inbox.get(outcome.inbox_item).artifact_hash == task.digest()
+    assert outcome.decision is not None and outcome.decision.chosen is not None
+    chosen = outcome.decision.chosen
+    expected = approval_artifact(registry, task, chosen.model_id, chosen.node_id)
+    assert council.inbox.get(outcome.inbox_item).artifact_hash == expected
 
 
 def test_no_eligible_model_escalates(
