@@ -1,0 +1,18 @@
+# Tunable settings. Changing a value here (or in the config store) is a new config version;
+# no code change is needed. Each entry's `name` selects a typed section in settings.py.
+settings:
+  - name: router
+    prior_strength: 10.0   # pseudo-observations behind a model card's prior_skill
+    default_prior: 0.5     # prior for task classes a card does not list
+    conservatism_sd: 1.0   # skill gate = posterior mean minus this many s.d.
+    min_success: 0.55      # skill gate threshold
+    max_seconds: null      # optional latency ceiling per task
+
+  - name: bakeoff
+    num_ctx: 16384
+    temperature: 0.3
+    sandbox_id: pagetrace
+    kinds:
+      plan: {prompt_id: dispatcher.plan, task_class: plan, num_predict: 4000}
+      review: {prompt_id: reviewer.review, task_class: review, num_predict: 2500}
+      code: {prompt_id: builder.refactor, task_class: code_patch, num_predict: 8000}

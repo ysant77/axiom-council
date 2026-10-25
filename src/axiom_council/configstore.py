@@ -1,4 +1,5 @@
-"""Versioned configuration store (SQLite) for models, nodes, roles, workspaces and prompts.
+"""Versioned configuration store (SQLite) for models, nodes, roles, workspaces,
+prompts, routes, sandboxes and tunable settings.
 
 Every write that changes content creates a new version and deactivates the previous one, so
 the exact config behind any past run can be recovered by hash. YAML files are only seeds.
@@ -26,6 +27,7 @@ KINDS: dict[str, tuple[str, str]] = {
     "prompt": ("prompts.yaml", "prompt_id"),
     "route": ("routes.yaml", "route_id"),
     "sandbox": ("sandboxes.yaml", "sandbox_id"),
+    "setting": ("settings.yaml", "name"),
 }
 
 _SCHEMA = """

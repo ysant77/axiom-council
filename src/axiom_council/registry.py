@@ -16,6 +16,7 @@ from axiom_council.configstore import ConfigStore
 from axiom_council.contracts import Strict, TaskClass
 from axiom_council.policy import RolePolicy, WorkspacePolicy
 from axiom_council.sandbox.profile import SandboxProfile
+from axiom_council.settings import Settings
 
 
 class ModelCard(Strict):
@@ -40,6 +41,11 @@ class ModelCard(Strict):
     )
     request_defaults: dict[str, Any] = Field(
         default_factory=dict, description="extra request fields, e.g. reasoning_effort"
+    )
+    think: bool | str | None = Field(
+        default=None,
+        description="native reasoning control (false, true, low, medium, high) where the engine"
+        " supports it; None leaves the engine default",
     )
 
 
@@ -80,6 +86,7 @@ class Registry(Strict):
     prompts: dict[str, PromptTemplate] = Field(default_factory=dict)
     routes: dict[str, Route] = Field(default_factory=dict)
     sandboxes: dict[str, SandboxProfile] = Field(default_factory=dict)
+    settings: Settings = Field(default_factory=Settings)
 
     @classmethod
     def from_store(cls, store: ConfigStore) -> Registry:
@@ -91,6 +98,7 @@ class Registry(Strict):
             prompts={k: PromptTemplate(**v) for k, v in store.active("prompt").items()},
             routes={k: Route(**v) for k, v in store.active("route").items()},
             sandboxes={k: SandboxProfile(**v) for k, v in store.active("sandbox").items()},
+            settings=Settings.from_entries(store.active("setting")),
         )
         registry.validate_links()
         return registry
@@ -108,6 +116,9 @@ class Registry(Strict):
             unknown = {route.sender, route.recipient} - parties
             if unknown:
                 raise ValueError(f"route {route.route_id} names unknown roles {sorted(unknown)}")
+        for kind in self.settings.bakeoff.kinds.values():
+            if kind.prompt_id not in self.prompts:
+                raise ValueError(f"bake-off kind names unknown prompt {kind.prompt_id}")
         for profile in self.sandboxes.values():
             if profile.workspace_id not in self.workspaces:
                 raise ValueError(f"sandbox {profile.sandbox_id} names unknown workspace")

@@ -19,10 +19,7 @@ from dataclasses import dataclass, field
 from axiom_council.contracts import DataClass, TaskSpec
 from axiom_council.ledger import CapabilityLedger
 from axiom_council.registry import ModelCard, NodeSpec, Registry
-
-PRIOR_STRENGTH = 10.0  # pseudo-observations behind a model card's prior_skill
-DEFAULT_PRIOR = 0.5
-CONSERVATISM_SD = 1.0  # how many posterior s.d. below the mean the skill gate uses
+from axiom_council.settings import RouterSettings
 
 
 @dataclass(frozen=True)
@@ -57,9 +54,9 @@ class RoutingDecision:
     notes: tuple[str, ...] = field(default_factory=tuple)
 
 
-def _posterior(prior: float, successes: int, failures: int) -> tuple[float, float]:
-    a = prior * PRIOR_STRENGTH + successes
-    b = (1 - prior) * PRIOR_STRENGTH + failures
+def _posterior(prior: float, successes: int, failures: int, strength: float) -> tuple[float, float]:
+    a = prior * strength + successes
+    b = (1 - prior) * strength + failures
     mean = a / (a + b)
     var = (a * b) / ((a + b) ** 2 * (a + b + 1))
     return mean, math.sqrt(var)
@@ -76,14 +73,11 @@ class Router:
         self,
         registry: Registry,
         ledger: CapabilityLedger,
-        *,
-        min_success: float = 0.55,
-        max_seconds: float | None = None,
+        settings: RouterSettings | None = None,
     ):
         self.registry = registry
         self.ledger = ledger
-        self.min_success = min_success
-        self.max_seconds = max_seconds
+        self.settings = settings or registry.settings.router
 
     def _hard_check(
         self,
@@ -118,14 +112,15 @@ class Router:
     ) -> Candidate | Rejection:
         """Apply the skill gate and latency ceiling, then price one eligible placement."""
         stats = self.ledger.stats(model.model_id, task.task_class)
-        prior = model.prior_skill.get(task.task_class, DEFAULT_PRIOR)
-        p, sd = _posterior(prior, stats.successes, stats.failures)
-        p_lower = max(0.0, p - CONSERVATISM_SD * sd)
-        if p_lower < self.min_success:
+        cfg = self.settings
+        prior = model.prior_skill.get(task.task_class, cfg.default_prior)
+        p, sd = _posterior(prior, stats.successes, stats.failures, cfg.prior_strength)
+        p_lower = max(0.0, p - cfg.conservatism_sd * sd)
+        if p_lower < cfg.min_success:
             return Rejection(
                 model.model_id,
                 node.node_id,
-                f"skill lower bound {p_lower:.2f} < {self.min_success:.2f}"
+                f"skill lower bound {p_lower:.2f} < {cfg.min_success:.2f}"
                 f" ({stats.trials} verified trials)",
             )
         seconds = (
@@ -133,7 +128,7 @@ class Router:
             if stats.mean_wall_seconds is not None
             else (output_tokens + model.reasoning_overhead_tokens) / _estimated_tps(model)
         )
-        if self.max_seconds is not None and seconds > self.max_seconds:
+        if cfg.max_seconds is not None and seconds > cfg.max_seconds:
             return Rejection(model.model_id, node.node_id, f"expected {seconds:.0f}s > ceiling")
         energy = seconds * node.watts_under_load / 3_600_000 * node.usd_per_kwh
         return Candidate(
