@@ -1,3 +1,5 @@
+# Fixtures v1.1 (v1.1: widened one synonym group in plan-windows-node after auditing stored
+# answers; results are reported under both versions).
 # Product-manager planning tasks. Pass = valid plan JSON and every constraint check holds.
 # Checks: milestone count bounds, hours budget, team models drawn only from the candidates,
 # required roles staffed, required concepts mentioned (each group: any one term), forbidden
@@ -36,7 +38,7 @@ fixtures:
     max_milestones: 5
     hours_budget: 16
     required_roles: [mlops]
-    must_mention: [[vram, 8 gb, 8gb, memory], [private, tailscale, firewall, lan], [fail, health, heartbeat, fallback]]
+    must_mention: [[vram, 8 gb, 8gb, memory], [private, tailscale, firewall, lan, internal network, local network, no inbound, not exposed], [fail, health, heartbeat, fallback]]
     forbid: [port forward, public ip, 0.0.0.0/0]
     expect_questions: false
 
