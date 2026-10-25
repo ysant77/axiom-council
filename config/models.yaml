@@ -2,8 +2,12 @@
 # prior_skill is a starting belief only; the capability ledger overrides it with measured,
 # verified outcomes. shadow_usd_per_mtok is a placeholder hosted-API price used for savings
 # reports and must be recalibrated before any figure is published.
+# digest and quantization pin the exact build (Ollama 0.40.11, 2026-10-25). Routing evidence is
+# kept per build; a bake-off refuses to run if the runtime serves a different digest.
 models:
   - model_id: gpt-oss:20b
+    digest: f38aa0c53da5f8c49d08c43a99df24ff53167fe68e24664a7777288e7656fdfe
+    quantization: MXFP4
     family: gpt-oss
     licence: Apache-2.0
     params_b: 21
@@ -25,6 +29,8 @@ models:
       code_patch: 0.55
 
   - model_id: qwen3:4b
+    digest: 359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7
+    quantization: Q4_K_M
     family: qwen3
     licence: Apache-2.0
     params_b: 4.0
@@ -45,6 +51,8 @@ models:
       code_patch: 0.35
 
   - model_id: gemma3:4b
+    digest: 68ceab7e468a31c988b44d5a4984a0e21f58c4f7158c6ce29c1804babac38df7
+    quantization: Q4_K_M
     family: gemma3
     licence: Gemma Terms of Use
     params_b: 4.3
@@ -63,6 +71,8 @@ models:
       code_patch: 0.3
 
   - model_id: qwen3.8:27b
+    digest: 47951e4a666180bc2aedfc93c169472f2de783696fe196efbf063f5730ecf163
+    quantization: nvfp4
     family: qwen3.8
     licence: Apache-2.0
     params_b: 27
@@ -83,6 +93,8 @@ models:
       code_patch: 0.7
 
   - model_id: gemma4:26b
+    digest: 48eb98ec778c163d87f69d735fcdd79e345063af9af4685613fd018ae5debf5e
+    quantization: nvfp4
     family: gemma4
     licence: Apache-2.0
     params_b: 25.2

@@ -42,6 +42,10 @@ class ModelCard(Strict):
     request_defaults: dict[str, Any] = Field(
         default_factory=dict, description="extra request fields, e.g. reasoning_effort"
     )
+    digest: str | None = Field(
+        default=None, description="the served build's digest (or a prefix of it); pins evidence"
+    )
+    quantization: str | None = None
     think: bool | str | None = Field(
         default=None,
         description="native reasoning control (false, true, low, medium, high) where the engine"

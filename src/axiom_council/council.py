@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from axiom_council.audit import AuditLog
 from axiom_council.configstore import ConfigStore
@@ -25,8 +26,9 @@ from axiom_council.contracts import (
 from axiom_council.inbox import Inbox
 from axiom_council.ledger import CapabilityLedger
 from axiom_council.policy import PolicyEngine
-from axiom_council.providers import ChatProvider, provider_for
-from axiom_council.registry import NodeSpec, Registry
+from axiom_council.provenance import think_value
+from axiom_council.providers import ChatProvider, ProviderError, provider_for
+from axiom_council.registry import ModelCard, NodeSpec, Registry
 from axiom_council.router import Router, RoutingDecision
 from axiom_council.tasks import TaskRecord, TaskStore
 
@@ -54,6 +56,12 @@ def open_registry(home: Path, seed_dir: Path) -> Registry:
 
 
 ProviderFactory = Callable[[NodeSpec], ChatProvider]
+
+
+def _request_extra(model: ModelCard) -> dict[str, Any]:
+    """The card's request fields plus its reasoning control, as the bake-off sends them."""
+    think = think_value(model)
+    return {**model.request_defaults, **({"think": think} if think is not None else {})}
 
 
 def approval_artifact(registry: Registry, spec: TaskSpec, model_id: str, node_id: str) -> str:
@@ -169,8 +177,13 @@ class Council:
                 model_id=model.model_id,
                 messages=messages,
                 max_tokens=output_tokens + model.reasoning_overhead_tokens,
-                extra=model.request_defaults,
+                extra=_request_extra(model),
             )
+            if not result.output.strip() and result.finish_reason == "length":
+                raise ProviderError(
+                    f"{model.model_id} exhausted its output budget before answering"
+                    " (likely hidden reasoning); raise reasoning_overhead_tokens"
+                )
         except Exception as exc:
             self.audit.append("inference_failed", task.task_id, node.node_id, error=str(exc))
             self.tasks.transition(task.task_id, S.FAILED, reason=str(exc)[:500])

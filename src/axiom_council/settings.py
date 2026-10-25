@@ -20,6 +20,10 @@ class RouterSettings(Strict):
     )
     min_success: float = Field(default=0.55, ge=0, le=1)
     max_seconds: float | None = Field(default=None, gt=0)
+    match_harness: bool = Field(
+        default=False,
+        description="count only evidence gathered under the current harness hash (RFC 0005)",
+    )
 
 
 class BakeoffKind(Strict):
@@ -35,6 +39,7 @@ class BakeoffKind(Strict):
 class BakeoffSettings(Strict):
     num_ctx: int = Field(default=16384, gt=0)
     temperature: float = Field(default=0.3, ge=0)
+    seed: int | None = Field(default=None, description="engine sampling seed; None is unseeded")
     sandbox_id: str = "pagetrace"
     repair_attempts: int = Field(
         default=0, ge=0, le=3, description="extra attempts after public-check feedback"

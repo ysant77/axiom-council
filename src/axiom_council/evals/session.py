@@ -10,8 +10,8 @@ from axiom_council.contracts import utcnow
 from axiom_council.energy import meter_for
 from axiom_council.evals.bakeoff import Bakeoff, CodeContext, Contestant, RunRecord
 from axiom_council.evals.fixtures import load_fixtures
-from axiom_council.evals.ollama_metrics import OllamaChat
 from axiom_council.ledger import CapabilityLedger
+from axiom_council.providers import provider_for
 from axiom_council.registry import NodeSpec, Registry
 from axiom_council.sandbox import DockerSandbox, create_snapshot
 
@@ -31,11 +31,11 @@ def parse_contestants(spec: str) -> list[Contestant]:
 
 
 def _node_for(registry: Registry, model_ids: list[str]) -> NodeSpec:
-    """First enabled Ollama node serving every contestant (timings need Ollama's native API)."""
+    """First enabled node serving every contestant; its runtime picks the provider."""
     for node in registry.nodes.values():
-        if node.enabled and node.runtime == "ollama" and set(model_ids) <= set(node.serves):
+        if node.enabled and set(model_ids) <= set(node.serves):
             return node
-    raise ValueError(f"no enabled ollama node serves all of {model_ids}")
+    raise ValueError(f"no enabled node serves all of {model_ids}")
 
 
 def _code_context(registry: Registry, home: Path, sandbox_id: str) -> CodeContext:
@@ -65,13 +65,13 @@ def run_bakeoff(
     results.parent.mkdir(parents=True, exist_ok=True)
     node = _node_for(registry, [c.model_id for c in contestants])
     sandbox_id = registry.settings.bakeoff.sandbox_id
-    chat = OllamaChat(node.base_url)
+    provider = provider_for(node, timeout=1800.0)
     ledger = CapabilityLedger(home / "ledger.sqlite3")
     try:
         bakeoff = Bakeoff(
             registry=registry,
             fixtures=load_fixtures(fixtures_dir),
-            chat=chat,
+            provider=provider,
             ledger=ledger,
             results_path=results,
             node_id=node.node_id,
@@ -82,5 +82,5 @@ def run_bakeoff(
         )
         return bakeoff.run(contestants), results
     finally:
-        chat.close()
+        provider.close()
         ledger.close()

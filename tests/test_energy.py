@@ -24,7 +24,8 @@ from axiom_council.evals.fixtures import load_fixtures
 from axiom_council.ledger import CapabilityLedger
 from axiom_council.registry import Registry
 
-from .test_bakeoff import GOOD_PLAN, REPO, FakeChat
+from .fake_provider import FakeProvider
+from .test_bakeoff import GOOD_PLAN, REPO
 
 UNPLUGGED = (
     '"ExternalConnected" = No\n"Voltage" = 13000\n"InstantAmperage" = 18446744073709550616\n'
@@ -132,12 +133,12 @@ def test_factory_picks_meter_by_node_config(
 
 
 def test_bakeoff_records_energy_and_carbon(registry: Registry, tmp_path: Path) -> None:
-    chat = FakeChat({"plan": json.dumps(GOOD_PLAN), "review": "{}"})
+    chat = FakeProvider({"plan": json.dumps(GOOD_PLAN), "review": "{}"})
     ledger = CapabilityLedger(tmp_path / "ledger.sqlite3")
     bake = Bakeoff(
         registry,
         load_fixtures(REPO / "evals/fixtures"),
-        chat,  # type: ignore[arg-type]
+        chat,
         ledger,
         tmp_path / "r.jsonl",
         "mac-m5",

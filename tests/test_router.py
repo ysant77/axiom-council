@@ -7,6 +7,7 @@ import pytest
 
 from axiom_council.contracts import Budget, DataClass, TaskClass, TaskSpec
 from axiom_council.ledger import CapabilityLedger
+from axiom_council.provenance import Placement, placement_for
 from axiom_council.registry import Registry
 from axiom_council.router import Router
 
@@ -20,12 +21,14 @@ def ledger(tmp_path: Path) -> Iterator[CapabilityLedger]:
     lg.close()
 
 
-def _record(ledger: CapabilityLedger, model: str, cls: TaskClass, ok: int, bad: int) -> None:
+def _record(
+    ledger: CapabilityLedger, registry: Registry, model: str, cls: TaskClass, ok: int, bad: int
+) -> None:
+    where = placement_for(registry, model, "mac-m5")
     for i in range(ok + bad):
         ledger.record(
             task_id=f"t{i}",
-            model_id=model,
-            node_id="mac-m5",
+            placement=where,
             task_class=cls,
             success=i < ok,
             verified_by="pytest",
@@ -58,8 +61,8 @@ def test_weak_prior_is_gated_out_for_hard_tasks(
 def test_measured_failures_demote_a_model(
     registry: Registry, ledger: CapabilityLedger, make_task: Callable[..., TaskSpec]
 ) -> None:
-    _record(ledger, "qwen3:4b", TaskClass.TRIAGE, ok=1, bad=12)
-    _record(ledger, "gemma3:4b", TaskClass.TRIAGE, ok=1, bad=12)
+    _record(ledger, registry, "qwen3:4b", TaskClass.TRIAGE, ok=1, bad=12)
+    _record(ledger, registry, "gemma3:4b", TaskClass.TRIAGE, ok=1, bad=12)
     decision = Router(registry, ledger).route(make_task(), prompt_tokens=400)
     assert decision.chosen is not None and decision.chosen.model_id not in SMALL_MODELS
 
@@ -67,7 +70,7 @@ def test_measured_failures_demote_a_model(
 def test_measured_successes_promote_a_model(
     registry: Registry, ledger: CapabilityLedger, make_task: Callable[..., TaskSpec]
 ) -> None:
-    _record(ledger, "qwen3:4b", TaskClass.PLAN, ok=20, bad=0)
+    _record(ledger, registry, "qwen3:4b", TaskClass.PLAN, ok=20, bad=0)
     decision = Router(registry, ledger).route(
         make_task(task_class=TaskClass.PLAN), prompt_tokens=400
     )
@@ -119,8 +122,7 @@ def test_self_verification_is_refused(ledger: CapabilityLedger) -> None:
     with pytest.raises(ValueError, match="verified by someone other"):
         ledger.record(
             task_id="t",
-            model_id="qwen3:4b",
-            node_id="mac-m5",
+            placement=Placement("qwen3:4b", "mac-m5"),
             task_class=TaskClass.TRIAGE,
             success=True,
             verified_by="qwen3:4b",

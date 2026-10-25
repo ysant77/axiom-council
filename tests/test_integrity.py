@@ -19,6 +19,7 @@ import pytest
 from axiom_council.contracts import RiskClass, TaskClass, TaskSpec, TaskState
 from axiom_council.council import Council
 from axiom_council.ledger import CapabilityLedger
+from axiom_council.provenance import Placement, placement_for
 from axiom_council.registry import Registry
 
 from .test_council import _factory, _ok
@@ -45,10 +46,13 @@ def _capture() -> tuple[list[str], Callable[[httpx.Request], httpx.Response]]:
     return models, handler
 
 
-def _fail_model(home: Path, model_id: str, task_class: TaskClass, count: int = 40) -> None:
+def _fail_model(
+    registry: Registry, home: Path, model_id: str, task_class: TaskClass, count: int = 40
+) -> None:
     ledger = CapabilityLedger(home / "ledger.sqlite3")
+    where = placement_for(registry, model_id, "mac-m5")
     for i in range(count):
-        ledger.record(task_id=f"fail-{i}", model_id=model_id, node_id="mac-m5",
+        ledger.record(task_id=f"fail-{i}", placement=where,
                       task_class=task_class, success=False, verified_by="pytest",
                       wall_seconds=1.0, total_tokens=10)  # fmt: skip
     ledger.close()
@@ -61,7 +65,7 @@ def test_resume_runs_the_approved_model_even_if_routing_now_prefers_another(
     registry: Registry, tmp_path: Path, make_task: Callable[..., TaskSpec]
 ) -> None:
     task_id, approved = _held(registry, tmp_path, make_task)
-    _fail_model(tmp_path, approved, TaskClass.TRIAGE)  # routing would now reject it
+    _fail_model(registry, tmp_path, approved, TaskClass.TRIAGE)  # routing would now reject it
     models, handler = _capture()
     council = Council(registry, tmp_path, _factory(handler))
     outcome = council.resume(task_id)
@@ -133,8 +137,11 @@ def test_unknown_or_unavailable_placement_is_rejected(
 # --- D-02 -------------------------------------------------------------------------------
 
 
+M = Placement("m", "n")
+
+
 def _bench(ledger: CapabilityLedger, run_id: str, item: str, success: bool, **kw: Any) -> None:
-    ledger.record(task_id=f"{run_id}-{item}", model_id="m", node_id="n",
+    ledger.record(task_id=f"{run_id}-{item}", placement=M,
                   task_class=TaskClass.PLAN, success=success, verified_by="scorer",
                   wall_seconds=1.0, total_tokens=10, run_id=run_id, item_key=item,
                   **kw)  # fmt: skip
@@ -146,12 +153,12 @@ def test_repeated_runs_count_each_benchmark_item_once(tmp_path: Path) -> None:
         _bench(ledger, run, "plan-a", success=False, split="calibration")
     _bench(ledger, "run-4", "plan-a", success=True, split="calibration")
     _bench(ledger, "run-4", "plan-b", success=False, split="calibration")
-    stats = ledger.stats("m", TaskClass.PLAN)
+    stats = ledger.stats(M, TaskClass.PLAN)
     assert (stats.successes, stats.failures) == (1, 1)  # latest result per item
     with pytest.raises(ValueError, match="already recorded"):
         _bench(ledger, "run-4", "plan-a", success=True, split="calibration")
     with pytest.raises(ValueError, match="run_id"):
-        ledger.record(task_id="x", model_id="m", node_id="n", task_class=TaskClass.PLAN,
+        ledger.record(task_id="x", placement=M, task_class=TaskClass.PLAN,
                       success=True, verified_by="scorer", wall_seconds=1.0, total_tokens=1,
                       item_key="plan-c", split="calibration")  # fmt: skip
     ledger.close()
@@ -179,7 +186,7 @@ def test_legacy_rows_are_migrated_to_one_vote_per_item(tmp_path: Path) -> None:
             )
     db.close()
     ledger = CapabilityLedger(path)
-    stats = ledger.stats("m", TaskClass.PLAN)
+    stats = ledger.stats(M, TaskClass.PLAN)
     ledger.close()
     assert (stats.successes, stats.failures) == (2, 0)  # latest bake-off vote + live task
 
@@ -194,9 +201,9 @@ def test_holdout_never_enters_the_ledger_and_development_does_not_route(tmp_path
     with pytest.raises(ValueError, match="split"):
         _bench(ledger, "run-1", "plan-x", success=True, split="production")
     _bench(ledger, "run-1", "plan-d", success=True, split="development")
-    assert ledger.stats("m", TaskClass.PLAN).trials == 0  # development is for debugging only
+    assert ledger.stats(M, TaskClass.PLAN).trials == 0  # development is for debugging only
     _bench(ledger, "run-1", "plan-c", success=True, split="calibration")
-    assert ledger.stats("m", TaskClass.PLAN).trials == 1
+    assert ledger.stats(M, TaskClass.PLAN).trials == 1
     ledger.close()
 
 
@@ -207,17 +214,18 @@ def test_bakeoff_labels_runs_and_keeps_holdout_out_of_routing(
     from axiom_council.evals.bakeoff import Bakeoff, Contestant
     from axiom_council.evals.fixtures import load_fixtures
 
-    from .test_bakeoff import GOOD_PLAN, REPO, FakeChat
+    from .fake_provider import FakeProvider
+    from .test_bakeoff import GOOD_PLAN, REPO
 
     fixtures = load_fixtures(REPO / "evals" / "fixtures")
     ledger = CapabilityLedger(tmp_path / "ledger.sqlite3")
     for run, split in (("results-a", "calibration"), ("results-b", "calibration"),
                        ("results-c", "holdout")):  # fmt: skip
-        chat = FakeChat({"plan": json.dumps(GOOD_PLAN), "review": '{"verdict": "approve"}'})
-        bake = Bakeoff(registry, fixtures, chat, ledger, tmp_path / f"{run}.jsonl", "mac-m5",  # type: ignore[arg-type]
+        chat = FakeProvider({"plan": json.dumps(GOOD_PLAN), "review": '{"verdict": "approve"}'})
+        bake = Bakeoff(registry, fixtures, chat, ledger, tmp_path / f"{run}.jsonl", "mac-m5",
                        EstimateMeter(30), split=split)  # fmt: skip
         bake.run([Contestant("qwen3:4b")])
-    stats = ledger.stats("qwen3:4b", TaskClass.PLAN)
+    stats = ledger.stats(placement_for(registry, "qwen3:4b", "mac-m5"), TaskClass.PLAN)
     ledger.close()
     assert stats.trials == len(fixtures.plan)  # two calibration runs, one vote per fixture
     rows = [json.loads(line) for line in (tmp_path / "results-c.jsonl").read_text().splitlines()]
