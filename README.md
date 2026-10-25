@@ -4,10 +4,10 @@ A policy-gated, evaluated council of **open-weight models** that routes each tas
 smallest model that is measurably good enough, on whichever machine can run it, and asks a
 human before anything risky.
 
-> Status: **R0 — control-plane foundation.** Contracts, policy, audit, config store,
-> capability ledger, cost-aware router, director inbox and an OpenAI-compatible provider.
-> Multi-role planning, review and arbitration land in later releases (see
-> [docs/ROADMAP.md](docs/ROADMAP.md)).
+> Status: **R1 in progress.** Foundation (contracts, policy, audit, config store, capability
+> ledger, cost-aware router, director inbox, OpenAI-compatible provider), the inspected
+> message bus, and the network-denied sandbox are in place. Multi-agent planning, building,
+> review and arbitration land next.
 
 ## Why
 
@@ -67,6 +67,4 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyt
 
 All changes reach `main` through a `<type>/<kebab-case>` branch and a pull request with green CI.
 
-CI enforces the same checks and a minimum of 85% coverage. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) and
-[docs/DISTRIBUTED.md](docs/DISTRIBUTED.md).
+CI enforces the same checks and a minimum of 85% coverage.
