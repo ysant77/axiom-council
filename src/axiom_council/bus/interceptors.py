@@ -1,0 +1,149 @@
+"""Interceptors inspect every envelope on the broker. Each one can pass, flag or reject.
+
+Flags are recorded and travel with the delivery so downstream gates and the director can
+see them; rejections stop the envelope. Heuristic detectors (injection) flag by default,
+because pattern matching cannot prove intent; exact detectors (secrets, canaries) reject.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Iterable
+from dataclasses import dataclass
+from typing import Literal, Protocol
+
+from axiom_council.bus.envelope import Envelope, MessageKind, Trust
+from axiom_council.contracts import Strict
+
+
+@dataclass(frozen=True)
+class Finding:
+    interceptor: str
+    severity: Literal["flag", "reject"]
+    detail: str
+
+
+class Rejected(Exception):
+    def __init__(self, finding: Finding):
+        super().__init__(f"{finding.interceptor}: {finding.detail}")
+        self.finding = finding
+
+
+class Interceptor(Protocol):
+    name: str
+
+    def inspect(self, envelope: Envelope) -> Iterable[Finding]: ...
+
+
+class Route(Strict):
+    """One allowed edge: sender role may send these kinds to recipient role."""
+
+    route_id: str
+    sender: str
+    recipient: str
+    kinds: frozenset[MessageKind]
+
+
+class RoutePolicy:
+    name = "route_policy"
+
+    def __init__(self, routes: Iterable[Route]):
+        self._allowed = {(r.sender, r.recipient, k) for r in routes for k in r.kinds}
+
+    def inspect(self, envelope: Envelope) -> Iterable[Finding]:
+        if (envelope.sender, envelope.recipient, envelope.kind) not in self._allowed:
+            yield Finding(
+                self.name,
+                "reject",
+                f"{envelope.sender} may not send {envelope.kind} to {envelope.recipient}",
+            )
+
+
+class SizeLimit:
+    name = "size_limit"
+
+    def __init__(self, max_chars: int = 200_000):
+        self.max_chars = max_chars
+
+    def inspect(self, envelope: Envelope) -> Iterable[Finding]:
+        size = len(envelope.text())
+        if size > self.max_chars:
+            yield Finding(self.name, "reject", f"payload text {size} chars > {self.max_chars}")
+
+
+_INJECTION_PATTERNS = [
+    r"ignore (all |any )?(previous|prior|above) (instructions|rules)",
+    r"disregard (the |your )?(system|previous) (prompt|instructions)",
+    r"you are now (in )?(developer|dan|jailbreak) mode",
+    r"(reveal|print|show) (your |the )?(system prompt|hidden instructions)",
+    r"(send|post|upload|exfiltrate) .{0,40}(token|secret|password|api key|credentials)",
+    r"(curl|wget|invoke-webrequest) +https?://",
+    r"approve (this|the) (patch|plan|request) automatically",
+]
+
+
+class InjectionHeuristics:
+    """Flags instruction-like text in untrusted content. A tripwire, not a guarantee."""
+
+    name = "injection_heuristics"
+
+    def __init__(self, patterns: Iterable[str] = _INJECTION_PATTERNS, *, block: bool = False):
+        self._patterns = [re.compile(p, re.IGNORECASE) for p in patterns]
+        self._severity: Literal["flag", "reject"] = "reject" if block else "flag"
+
+    def inspect(self, envelope: Envelope) -> Iterable[Finding]:
+        if envelope.trust is Trust.TRUSTED:
+            return
+        text = envelope.text()
+        for pattern in self._patterns:
+            match = pattern.search(text)
+            if match:
+                yield Finding(self.name, self._severity, f"instruction-like text: {match[0]!r}")
+
+
+_SECRET_PATTERNS = {
+    "github_token": r"\bgh[pousr]_[A-Za-z0-9]{36,}\b",
+    "aws_access_key": r"\bAKIA[0-9A-Z]{16}\b",
+    "private_key": r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
+    "slack_token": r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b",
+    "generic_assignment": (
+        r"(?i)\b(api[_-]?key|secret|password|token)\b\s*[:=]\s*['\"][^'\"\s]{16,}['\"]"
+    ),
+}
+
+
+class SecretScanner:
+    name = "secret_scanner"
+
+    def __init__(self) -> None:
+        self._patterns = {k: re.compile(v) for k, v in _SECRET_PATTERNS.items()}
+
+    def inspect(self, envelope: Envelope) -> Iterable[Finding]:
+        text = envelope.text()
+        for label, pattern in self._patterns.items():
+            if pattern.search(text):
+                yield Finding(self.name, "reject", f"possible secret ({label}) in payload")
+
+
+class CanaryGuard:
+    """Rejects any message containing a canary planted in a system prompt (prompt leak)."""
+
+    name = "canary_guard"
+
+    def __init__(self, canaries: Iterable[str]):
+        self._canaries = tuple(c for c in canaries if c)
+
+    def inspect(self, envelope: Envelope) -> Iterable[Finding]:
+        text = envelope.text()
+        if any(c in text for c in self._canaries):
+            yield Finding(self.name, "reject", "system prompt canary leaked into a message")
+
+
+def default_chain(routes: Iterable[Route], canaries: Iterable[str] = ()) -> list[Interceptor]:
+    return [
+        RoutePolicy(routes),
+        SizeLimit(),
+        SecretScanner(),
+        CanaryGuard(canaries),
+        InjectionHeuristics(),
+    ]

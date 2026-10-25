@@ -24,6 +24,7 @@ KINDS: dict[str, tuple[str, str]] = {
     "role": ("roles.yaml", "name"),
     "workspace": ("workspaces.yaml", "workspace_id"),
     "prompt": ("prompts.yaml", "prompt_id"),
+    "route": ("routes.yaml", "route_id"),
 }
 
 _SCHEMA = """

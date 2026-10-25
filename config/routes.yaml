@@ -1,0 +1,16 @@
+# Allowed message edges between roles. Anything not listed is rejected by the broker.
+# "director" is the human; "gatekeeper" is deterministic council code (sandbox + checks).
+routes:
+  - {route_id: director-dispatcher, sender: director, recipient: dispatcher, kinds: [task, answer]}
+  - {route_id: dispatcher-director, sender: dispatcher, recipient: director, kinds: [plan, clarify]}
+  - {route_id: dispatcher-builder, sender: dispatcher, recipient: builder, kinds: [task, answer]}
+  - {route_id: dispatcher-reviewer, sender: dispatcher, recipient: reviewer, kinds: [task, answer]}
+  - {route_id: dispatcher-worker, sender: dispatcher, recipient: worker, kinds: [task, answer]}
+  - {route_id: builder-gatekeeper, sender: builder, recipient: gatekeeper, kinds: [edit]}
+  - {route_id: builder-dispatcher, sender: builder, recipient: dispatcher, kinds: [clarify]}
+  - {route_id: gatekeeper-builder, sender: gatekeeper, recipient: builder, kinds: [verdict]}
+  - {route_id: gatekeeper-reviewer, sender: gatekeeper, recipient: reviewer, kinds: [evidence]}
+  - {route_id: gatekeeper-director, sender: gatekeeper, recipient: director, kinds: [verdict]}
+  - {route_id: reviewer-gatekeeper, sender: reviewer, recipient: gatekeeper, kinds: [review]}
+  - {route_id: reviewer-dispatcher, sender: reviewer, recipient: dispatcher, kinds: [clarify]}
+  - {route_id: worker-dispatcher, sender: worker, recipient: dispatcher, kinds: [answer, clarify]}
