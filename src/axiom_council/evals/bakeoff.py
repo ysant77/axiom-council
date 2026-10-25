@@ -20,6 +20,7 @@ from axiom_council.energy import EnergyMeter, EnergyReading
 from axiom_council.evals.code_task import code_messages, verify_code
 from axiom_council.evals.fixtures import CodeFixture, FixtureSet, PlanFixture, ReviewFixture
 from axiom_council.evals.ollama_metrics import ChatReply, OllamaChat
+from axiom_council.evals.repair import feedback
 from axiom_council.evals.scoring import Score, score_plan, score_review
 from axiom_council.ledger import CapabilityLedger
 from axiom_council.registry import PromptTemplate, Registry
@@ -60,6 +61,8 @@ class RunRecord:
     energy_scope: str = "none"
     energy_estimated: bool = True
     co2e_g: float = 0.0
+    attempts: int = 1
+    passed_first: bool = False
 
 
 @dataclass
@@ -80,6 +83,7 @@ class Bakeoff:
     meter: EnergyMeter
     code: CodeContext | None = None
     split: str = "calibration"  # development | calibration | holdout
+    repair_attempts: int | None = None  # None: use the bake-off settings
     records: list[RunRecord] = field(default_factory=list)
 
     def _prompt(self, kind: str) -> PromptTemplate:
@@ -128,9 +132,10 @@ class Bakeoff:
             return contestant.think
         return self.registry.models[contestant.model_id].think
 
-    def _run_one(self, contestant: Contestant, kind: str, fixture: Fixture, cold: bool) -> None:
+    def _ask(
+        self, contestant: Contestant, kind: str, messages: list[dict[str, str]]
+    ) -> tuple[ChatReply, EnergyReading]:
         cfg = self.registry.settings.bakeoff
-        messages = self._messages(kind, fixture)
         with self.meter.measure() as measured:  # inference only, not the sandbox gates
             reply = self.chat.chat(
                 contestant.model_id,
@@ -141,29 +146,68 @@ class Bakeoff:
                 temperature=cfg.temperature,
             )
         assert measured.reading is not None
-        run_id = f"{contestant.model_id.replace(':', '-')}-{fixture.id}"
-        score = self._score(fixture, reply, run_id)
-        m = reply.metrics
-        record = RunRecord(
-            model_id=contestant.model_id, fixture_id=fixture.id, kind=kind,
-            passed=score.passed, checks=score.checks, note=score.note[:600], cold=cold,
-            load_seconds=m.load_seconds, ttft_seconds=m.ttft_seconds,
-            prompt_tokens=m.prompt_tokens, output_tokens=m.output_tokens,
-            decode_tps=m.decode_tps, total_seconds=m.total_seconds,
-            thinking_chars=len(reply.thinking), done_reason=reply.done_reason,
-            output=reply.content, **self._energy(measured.reading),
-        )  # fmt: skip
-        self._persist(record, cfg.kinds[kind].task_class)
+        return reply, measured.reading
 
-    def _energy(self, reading: EnergyReading) -> dict[str, Any]:
+    def _attempts_allowed(self) -> int:
+        extra = self.repair_attempts
+        return 1 + (self.registry.settings.bakeoff.repair_attempts if extra is None else extra)
+
+    def _run_one(self, contestant: Contestant, kind: str, fixture: Fixture, cold: bool) -> None:
+        """First answer, then bounded repairs driven only by failed public checks."""
+        public = self.registry.settings.bakeoff.kinds[kind].public_checks
+        messages = self._messages(kind, fixture)
+        run_id = f"{contestant.model_id.replace(':', '-')}-{fixture.id}"
+        tries: list[tuple[ChatReply, EnergyReading]] = []
+        scores: list[Score] = []
+        for attempt in range(self._attempts_allowed()):
+            reply, reading = self._ask(contestant, kind, messages)
+            tries.append((reply, reading))
+            scores.append(self._score(fixture, reply, f"{run_id}-{attempt}"))
+            hint = None if scores[-1].passed else feedback(fixture, scores[-1], public)
+            if hint is None:
+                break
+            messages = [
+                *messages,
+                {"role": "assistant", "content": reply.content},
+                {"role": "user", "content": hint},
+            ]
+        record = self._record(contestant.model_id, kind, fixture, cold, tries, scores)
+        self._persist(record, self.registry.settings.bakeoff.kinds[kind].task_class)
+
+    def _record(
+        self, model_id: str, kind: str, fixture: Fixture, cold: bool,
+        tries: list[tuple[ChatReply, EnergyReading]], scores: list[Score],
+    ) -> RunRecord:  # fmt: skip
+        """One row per fixture; time, tokens and energy are summed over every attempt."""
+        replies = [reply for reply, _ in tries]
+        first, last, score = replies[0].metrics, replies[-1], scores[-1]
+        out_tokens = sum(r.metrics.output_tokens for r in replies)
+        decode_s = sum(r.metrics.decode_seconds for r in replies)
+        return RunRecord(
+            model_id=model_id, fixture_id=fixture.id, kind=kind,
+            passed=score.passed, checks=score.checks, note=score.note[:600], cold=cold,
+            load_seconds=first.load_seconds, ttft_seconds=first.ttft_seconds,
+            prompt_tokens=sum(r.metrics.prompt_tokens for r in replies),
+            output_tokens=out_tokens,
+            decode_tps=out_tokens / decode_s if decode_s else 0.0,
+            total_seconds=sum(r.metrics.total_seconds for r in replies),
+            thinking_chars=sum(len(r.thinking) for r in replies),
+            done_reason=last.done_reason, output=last.content,
+            attempts=len(tries), passed_first=scores[0].passed,
+            **self._energy([reading for _, reading in tries]),
+        )  # fmt: skip
+
+    def _energy(self, readings: list[EnergyReading]) -> dict[str, Any]:
         factor = self.registry.settings.energy.grid_kg_co2e_per_kwh
+        wh = sum(r.watt_hours for r in readings)
+        seconds = sum(r.seconds for r in readings)
         return {
-            "energy_wh": round(reading.watt_hours, 4),
-            "mean_watts": round(reading.mean_watts, 2),
-            "energy_method": reading.method,
-            "energy_scope": reading.scope,
-            "energy_estimated": reading.estimated,
-            "co2e_g": round(reading.watt_hours * factor, 4),  # Wh x kg/kWh = g
+            "energy_wh": round(wh, 4),
+            "mean_watts": round(wh * 3600 / seconds, 2) if seconds else 0.0,
+            "energy_method": readings[0].method,
+            "energy_scope": readings[0].scope,
+            "energy_estimated": any(r.estimated for r in readings),
+            "co2e_g": round(wh * factor, 4),  # Wh x kg/kWh = g
         }
 
     @property
@@ -211,6 +255,8 @@ def summarise(records: list[RunRecord]) -> list[dict[str, Any]]:
         row["median_ttft_s"] = round(median(r.ttft_seconds for r in warm), 2)
         row["decode_tps"] = round(fmean(r.decode_tps for r in runs), 1)
         row["total_minutes"] = round(sum(r.total_seconds for r in runs) / 60, 1)
+        row["first_try"] = sum(r.passed_first for r in runs)
+        row["mean_attempts"] = round(fmean(r.attempts for r in runs), 2)
         row["energy_wh"] = round(sum(r.energy_wh for r in runs), 2)
         row["co2e_g"] = round(sum(r.co2e_g for r in runs), 2)
         row["energy_methods"] = sorted({r.energy_method for r in runs})

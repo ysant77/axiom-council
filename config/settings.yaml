@@ -12,10 +12,25 @@ settings:
     num_ctx: 16384
     temperature: 0.3
     sandbox_id: pagetrace
+    repair_attempts: 0     # extra attempts after feedback; `council bakeoff --repair N` overrides
+    # public_checks: rules the prompt itself states, so their failures may be fed back.
+    # Every other check is the hidden rubric and is never revealed to the model.
     kinds:
-      plan: {prompt_id: dispatcher.plan, task_class: plan, num_predict: 4000}
-      review: {prompt_id: reviewer.review, task_class: review, num_predict: 2500}
-      code: {prompt_id: builder.refactor, task_class: code_patch, num_predict: 8000}
+      plan:
+        prompt_id: dispatcher.plan
+        task_class: plan
+        num_predict: 4000
+        public_checks: [valid_json, within_hours, models_from_candidates]
+      review:
+        prompt_id: reviewer.review
+        task_class: review
+        num_predict: 2500
+        public_checks: [valid_json]
+      code:
+        prompt_id: builder.refactor
+        task_class: code_patch
+        num_predict: 8000
+        public_checks: [splice, edit_policy, lint, tests]
 
   # M4 pipeline: each graph node acts as one role and exercises one capability; the policy
   # engine checks both before the node runs. A node missing here cannot be added to a graph.
