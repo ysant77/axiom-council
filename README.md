@@ -37,6 +37,7 @@ uv run council route "Plan the PageTrace adapter" --task-class plan
 uv run council ask "Summarise the transformer architecture in three bullets"
 uv run council inbox list       # approvals and clarifications waiting on you
 uv run council audit            # verify the tamper-evident audit chain
+uv run council sandbox selftest pagetrace   # needs Docker: snapshot, isolate, baseline checks
 ```
 
 Runtime state lives in `.council/` (override with `AXIOM_COUNCIL_HOME`).
@@ -55,6 +56,7 @@ Runtime state lives in `.council/` (override with `AXIOM_COUNCIL_HOME`).
 | `audit.py` | Append-only, hash-chained audit log |
 | `providers/` | OpenAI-compatible inference client |
 | `bus/` | Envelopes, broker, route policy and interceptors (injection, secrets, canaries) |
+| `sandbox/` | Pinned repo snapshots, path-policed edits, network-denied Docker checks |
 | `council.py` | The run loop tying it together |
 | `cli.py` | The `council` command |
 

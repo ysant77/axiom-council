@@ -1,0 +1,17 @@
+# Sandbox profiles. Setup lines run once at image build, with network, before any edit.
+# Checks run with no network on the edited snapshot; they mirror the repo's own CI.
+sandboxes:
+  - sandbox_id: pagetrace
+    workspace_id: pagetrace
+    source_repo: ${HOME}/Documents/personal/PageTrace
+    base_image: ghcr.io/astral-sh/uv@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58
+    setup:
+      - uv sync --locked --dev
+    checks:
+      lint: [ruff, check, src, tests]
+      format: [ruff, format, --check, src, tests]
+      tests: [python, -m, pytest, -q, -p, no:cacheprovider]
+    editable_globs: ["src/pagetrace/*.py", "src/pagetrace/**/*.py"]
+    frozen_globs: ["tests/*", "tests/**", ".github/**", "pyproject.toml", "uv.lock", "evals/**"]
+    max_files: 12
+    limits: {memory: 2g, cpus: 2, pids: 256, timeout_seconds: 600}

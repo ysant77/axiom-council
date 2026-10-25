@@ -15,6 +15,7 @@ from axiom_council.bus.interceptors import Route
 from axiom_council.configstore import ConfigStore
 from axiom_council.contracts import Strict, TaskClass
 from axiom_council.policy import RolePolicy, WorkspacePolicy
+from axiom_council.sandbox.profile import SandboxProfile
 
 
 class ModelCard(Strict):
@@ -78,6 +79,7 @@ class Registry(Strict):
     workspaces: dict[str, WorkspacePolicy]
     prompts: dict[str, PromptTemplate] = Field(default_factory=dict)
     routes: dict[str, Route] = Field(default_factory=dict)
+    sandboxes: dict[str, SandboxProfile] = Field(default_factory=dict)
 
     @classmethod
     def from_store(cls, store: ConfigStore) -> Registry:
@@ -88,6 +90,7 @@ class Registry(Strict):
             workspaces={k: WorkspacePolicy(**v) for k, v in store.active("workspace").items()},
             prompts={k: PromptTemplate(**v) for k, v in store.active("prompt").items()},
             routes={k: Route(**v) for k, v in store.active("route").items()},
+            sandboxes={k: SandboxProfile(**v) for k, v in store.active("sandbox").items()},
         )
         registry.validate_links()
         return registry
@@ -105,6 +108,9 @@ class Registry(Strict):
             unknown = {route.sender, route.recipient} - parties
             if unknown:
                 raise ValueError(f"route {route.route_id} names unknown roles {sorted(unknown)}")
+        for profile in self.sandboxes.values():
+            if profile.workspace_id not in self.workspaces:
+                raise ValueError(f"sandbox {profile.sandbox_id} names unknown workspace")
 
     def prompt_for(self, role: str, task_class: TaskClass) -> PromptTemplate | None:
         """Most specific prompt for a role: task-class match first, then the role default."""

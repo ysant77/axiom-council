@@ -14,6 +14,8 @@ from axiom_council.configstore import ConfigStore
 from axiom_council.contracts import Budget, Capability, TaskClass, TaskSpec
 from axiom_council.council import Council, open_registry
 from axiom_council.providers import OpenAICompatProvider, ProviderError
+from axiom_council.sandbox.runner import DockerSandbox
+from axiom_council.sandbox.selftest import selftest
 
 
 def _home() -> Path:
@@ -135,7 +137,7 @@ def _cmd_config(args: argparse.Namespace) -> int:
         if args.action == "seed":
             print(json.dumps(store.seed(_config())))
         else:
-            for kind in ("model", "node", "role", "workspace", "prompt", "route"):
+            for kind in ("model", "node", "role", "workspace", "prompt", "route", "sandbox"):
                 for key in store.active(kind):
                     entry = store.get(kind, key)
                     assert entry is not None
@@ -143,6 +145,32 @@ def _cmd_config(args: argparse.Namespace) -> int:
     finally:
         store.close()
     return 0
+
+
+def _cmd_sandbox(args: argparse.Namespace) -> int:
+    registry = open_registry(_home(), _config())
+    profile = registry.sandboxes.get(args.sandbox_id)
+    if profile is None:
+        print(f"unknown sandbox {args.sandbox_id!r}", file=sys.stderr)
+        return 2
+    report = selftest(
+        profile,
+        DockerSandbox(profile),
+        _home(),
+        AuditLog(_home() / "audit.jsonl"),
+        commit=args.commit,
+    )
+    print(f"snapshot  {report.snapshot.path} @ {report.snapshot.short}")
+    print(f"image     {report.image}")
+    print(f"network   {'denied' if report.isolation.passed else 'REACHABLE'}")
+    print(f"frozen    {'edit rejected' if report.frozen_edit_rejected else 'EDIT ALLOWED'}")
+    for check in report.checks:
+        status = "pass" if check.passed else "FAIL"
+        print(f"check     {check.name:<10} {status}  {check.duration_seconds:.1f}s")
+        if not check.passed:
+            print(check.output_tail)
+    print(f"selftest  {'PASSED' if report.passed else 'FAILED'}")
+    return 0 if report.passed else 1
 
 
 def _cmd_audit(_: argparse.Namespace) -> int:
@@ -183,6 +211,12 @@ def build_parser() -> argparse.ArgumentParser:
     config = sub.add_parser("config", help="seed or list the versioned config store")
     config.add_argument("action", choices=["seed", "list"])
     config.set_defaults(fn=_cmd_config)
+
+    sandbox = sub.add_parser("sandbox", help="self-test a sandbox profile (needs Docker)")
+    sandbox.add_argument("action", choices=["selftest"])
+    sandbox.add_argument("sandbox_id")
+    sandbox.add_argument("--commit", default="HEAD")
+    sandbox.set_defaults(fn=_cmd_sandbox)
 
     sub.add_parser("audit", help="verify the audit hash chain").set_defaults(fn=_cmd_audit)
     return parser
