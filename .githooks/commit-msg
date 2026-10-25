@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Rejects co-author trailers and any locally configured forbidden phrases.
+# Extra phrases (one extended regex per line) live in the untracked file
+# .git/info/forbidden-phrases so they never enter the repository.
+set -euo pipefail
+
+msg_file="$1"
+if grep -qiE '^co-authored-by:' "$msg_file"; then
+  echo "commit-msg: co-author trailers are not allowed." >&2
+  exit 1
+fi
+phrases="$(git rev-parse --git-dir)/info/forbidden-phrases"
+if [[ -f "$phrases" ]] && grep -viE '^\s*(#|$)' "$phrases" | grep -qiEf - "$msg_file"; then
+  echo "commit-msg: message contains a forbidden phrase (see .git/info/forbidden-phrases)." >&2
+  exit 1
+fi

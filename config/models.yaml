@@ -1,0 +1,62 @@
+# Model cards: claims about each open-weight model as served.
+# prior_skill is a starting belief only; the capability ledger overrides it with measured,
+# verified outcomes. shadow_usd_per_mtok is a placeholder hosted-API price used for savings
+# reports and must be recalibrated before any figure is published.
+models:
+  - model_id: gpt-oss:20b
+    family: gpt-oss
+    licence: Apache-2.0
+    params_b: 21
+    active_params_b: 3.6
+    context_tokens: 131072
+    tool_calling: true
+    memory_gb: 14
+    shadow_usd_per_mtok: 0.30
+    reasoning_overhead_tokens: 400
+    request_defaults: {reasoning_effort: low}
+    prior_skill:
+      triage: 0.8
+      extract: 0.75
+      grounded_answer: 0.75
+      plan: 0.75
+      review: 0.7
+      draft: 0.7
+      code_patch: 0.55
+
+  - model_id: qwen3:4b
+    family: qwen3
+    licence: Apache-2.0
+    params_b: 4.0
+    context_tokens: 32768
+    tool_calling: true
+    memory_gb: 3.5
+    shadow_usd_per_mtok: 0.10
+    # Measured 2026-10-25: ~800-900 hidden reasoning tokens even at low effort.
+    reasoning_overhead_tokens: 1200
+    request_defaults: {reasoning_effort: low}
+    prior_skill:
+      triage: 0.7
+      extract: 0.65
+      grounded_answer: 0.6
+      plan: 0.5
+      review: 0.5
+      draft: 0.55
+      code_patch: 0.35
+
+  - model_id: gemma3:4b
+    family: gemma3
+    licence: Gemma Terms of Use
+    params_b: 4.3
+    context_tokens: 131072
+    modalities: [text, image]
+    tool_calling: false
+    memory_gb: 4.0
+    shadow_usd_per_mtok: 0.10
+    prior_skill:
+      triage: 0.7
+      extract: 0.65
+      grounded_answer: 0.55
+      plan: 0.45
+      review: 0.5
+      draft: 0.6
+      code_patch: 0.3

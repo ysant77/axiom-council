@@ -1,0 +1,21 @@
+# Role grants. A role can never exceed these, whatever a task or a model asks for.
+roles:
+  - name: dispatcher
+    description: Decomposes tasks, picks among router-eligible models, answers worker questions.
+    capabilities: [llm_inference, read_workspace, read_evidence]
+    can_ask: [director]
+
+  - name: worker
+    description: Executes one bounded sub-task with the evidence it is handed.
+    capabilities: [llm_inference, read_evidence]
+    can_ask: [dispatcher]
+
+  - name: reviewer
+    description: Checks a result against acceptance checks and sources; cannot edit it.
+    capabilities: [llm_inference, read_evidence, read_workspace]
+    can_ask: [dispatcher, director]
+
+  - name: builder
+    description: Proposes patches inside a network-denied sandbox (from R3).
+    capabilities: [llm_inference, read_workspace, propose_patch, run_sandbox]
+    can_ask: [dispatcher]

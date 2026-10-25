@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Blocks direct pushes to main and enforces branch naming.
+# The one-time initial push of a new repository is allowed with ALLOW_INITIAL_PUSH=1.
+set -euo pipefail
+
+zero="0000000000000000000000000000000000000000"
+pattern='^refs/heads/(feat|fix|chore|docs|refactor|test|ci|perf|release)/[a-z0-9]+(-[a-z0-9]+)*$'
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ "$local_sha" == "$zero" ]] && continue  # branch deletion
+  if [[ "$remote_ref" == "refs/heads/main" ]]; then
+    if [[ "$remote_sha" == "$zero" && "${ALLOW_INITIAL_PUSH:-0}" == "1" ]]; then
+      continue
+    fi
+    echo "pre-push: direct pushes to main are not allowed; open a pull request." >&2
+    exit 1
+  fi
+  if [[ "$remote_ref" == refs/heads/* && ! "$remote_ref" =~ $pattern ]]; then
+    echo "pre-push: branch '${remote_ref#refs/heads/}' must match <type>/<kebab-case>." >&2
+    exit 1
+  fi
+done

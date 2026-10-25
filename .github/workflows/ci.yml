@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-hygiene:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Branch name
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          [[ "$HEAD_REF" =~ ^(feat|fix|chore|docs|refactor|test|ci|perf|release)/[a-z0-9]+(-[a-z0-9]+)*$ ]] \
+            || { echo "branch '$HEAD_REF' must match <type>/<kebab-case>"; exit 1; }
+      - name: No co-author trailers
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git log --format=%B "$BASE_SHA..$HEAD_SHA" | grep -qiE '^co-authored-by:'; then
+            echo "co-author trailers are not allowed"; exit 1
+          fi
+
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Format
+        run: uv run ruff format --check .
+      - name: Type check
+        run: uv run mypy
+      - name: Size limits (500 lines/file, 50 lines/function)
+        run: uv run python scripts/check_size.py src tests scripts
+      - name: Tests with coverage gate (>= 85%)
+        run: uv run pytest
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Dependency audit
+        run: uvx pip-audit --strict -r <(uv export --no-hashes --no-dev --no-emit-project)
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

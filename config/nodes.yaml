@@ -1,0 +1,24 @@
+# Compute nodes. Every node exposes an OpenAI-compatible API (Ollama, llama.cpp, vLLM, SGLang).
+# memory_budget_gb is what inference may use, not the machine's total memory.
+nodes:
+  - node_id: mac-m5
+    base_url: http://127.0.0.1:11434
+    runtime: ollama
+    hardware: MacBook Air M5, 32 GB unified memory, fanless
+    memory_budget_gb: 22
+    watts_under_load: 30
+    trusted_for_private: true
+    serves: [gpt-oss:20b, qwen3:4b, gemma3:4b]
+
+  # Windows laptop on the same LAN. Set base_url to its Tailscale name or LAN IP and flip
+  # enabled once `council nodes` reports it up. 8 GB of VRAM keeps it to small models at
+  # full GPU speed; gpt-oss:20b would spill into system RAM and run far slower.
+  - node_id: win-4060
+    base_url: http://win-4060:11434
+    runtime: ollama
+    hardware: Windows laptop, RTX 4060 Laptop 8 GB VRAM, 32 GB RAM
+    memory_budget_gb: 7.5
+    watts_under_load: 110
+    trusted_for_private: true
+    enabled: false
+    serves: [qwen3:4b, gemma3:4b]

@@ -1,0 +1,31 @@
+# Per-workspace ceilings. Tasks are rejected, not trimmed, when they ask for more.
+workspaces:
+  - workspace_id: sandbox
+    max_capabilities: [llm_inference, read_evidence]
+    max_data_class: internal
+    max_tokens_per_task: 64000
+    approval_at_or_above: high
+
+  - workspace_id: pagetrace
+    max_capabilities: [llm_inference, read_evidence, read_workspace]
+    max_data_class: internal
+    max_tokens_per_task: 200000
+    approval_at_or_above: medium
+
+  - workspace_id: lumen
+    max_capabilities: [llm_inference, read_evidence]
+    max_data_class: private
+    max_tokens_per_task: 200000
+    approval_at_or_above: medium
+
+  - workspace_id: atmos
+    max_capabilities: [llm_inference, read_evidence, read_workspace]
+    max_data_class: public
+    max_tokens_per_task: 200000
+    approval_at_or_above: medium
+
+  - workspace_id: council
+    max_capabilities: [llm_inference, read_workspace, propose_patch, run_sandbox]
+    max_data_class: internal
+    max_tokens_per_task: 400000
+    approval_at_or_above: low
