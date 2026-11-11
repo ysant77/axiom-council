@@ -57,13 +57,12 @@ class Broker:
         self._taps.append(observer)
 
     def _inspect(self, envelope: Envelope) -> tuple[Finding, ...]:
-        findings: list[Finding] = []
-        for interceptor in self._interceptors:
-            for finding in interceptor.inspect(envelope):
-                findings.append(finding)
-                if finding.severity == "reject":
-                    return tuple(findings)
-        return tuple(findings)
+        """Run every interceptor, in chain order, and keep all findings.
+
+        A reject does not stop the chain: a later interceptor still flags what it sees, so the
+        audit record of a rejected message is complete and independent of the chain order.
+        """
+        return tuple(f for interceptor in self._interceptors for f in interceptor.inspect(envelope))
 
     def _issue_evidence(self, envelope: Envelope) -> None:
         """Record the evidence of a delivered message when its sender is an issuer role."""
