@@ -19,7 +19,7 @@ from axiom_council.contracts import TaskState
 from axiom_council.council import approval_artifact
 from axiom_council.inbox import Inbox, InboxItem
 from axiom_council.tasks import TaskRecord, TaskStateError, TaskStore
-from axiom_council.verify_checks import Check, ConfigHistory, Status, failed, passed
+from axiom_council.verify.checks import Check, ConfigHistory, Status, failed, passed
 
 INFERENCE = frozenset({"inference_completed", "inference_failed"})
 _RAN = (TaskState.RUNNING, TaskState.COMPLETED, TaskState.FAILED)

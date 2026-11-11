@@ -19,7 +19,7 @@ from axiom_council.contracts import RiskClass, TaskSpec, TaskState
 from axiom_council.council import Council, open_registry
 from axiom_council.provenance import config_hash, harness_hash
 from axiom_council.registry import Registry
-from axiom_council.verify_run import Status, VerifyReport, verify_run
+from axiom_council.verify import Status, VerifyReport, verify_run
 
 from .conftest import CONFIG_DIR
 from .test_council import _factory, _ok

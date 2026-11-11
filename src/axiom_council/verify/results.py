@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from axiom_council.provenance import harness_hash
-from axiom_council.verify_checks import Check, ConfigHistory, Status, failed, passed
+from axiom_council.verify.checks import Check, ConfigHistory, Status, failed, passed
 
 NAME = "provenance"
 _HASH = re.compile(r"^[0-9a-f]{64}$")

@@ -18,7 +18,7 @@ from axiom_council.evals.session import parse_contestants, run_bakeoff
 from axiom_council.providers import ProviderError, provider_for
 from axiom_council.sandbox.runner import DockerSandbox
 from axiom_council.sandbox.selftest import selftest
-from axiom_council.verify_run import verify_run
+from axiom_council.verify import verify_run
 
 
 def _home() -> Path:
