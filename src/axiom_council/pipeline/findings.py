@@ -2,13 +2,15 @@
 
 A finding is supported only when code can resolve what it cites. Its path and line range
 lie inside a changed hunk of the patch under review, or its evidence names a gate check
-that failed in this run (`gate:<check>`). Every supported high finding needs an answer.
-An accept counts with any non-blank reason. A reject counts only when it also names a gate
-check that passed in this run. This module calls no model and writes no state.
+that failed in this run (`gate:<check>`). A path that is absolute or leaves the repository
+root is never supported. Every supported high finding needs an answer. An accept counts
+with any non-blank reason. A reject counts only when it also names a gate check that passed
+in this run. This module calls no model and writes no state.
 """
 
 from __future__ import annotations
 
+import posixpath
 from collections.abc import Iterable
 from typing import Literal
 
@@ -73,10 +75,33 @@ def cited_check(finding: Finding) -> str | None:
     return None
 
 
+_DIFF_PREFIXES = ("a/", "b/")
+
+
+def _root_problem(path: str) -> str | None:
+    if path.startswith("/"):
+        return f"{path!r} is an absolute path"
+    normal = posixpath.normpath(path) if path else path
+    if normal == ".." or normal.startswith("../"):
+        return f"{path!r} lies outside the repository root"
+    return None
+
+
+def resolve_path(path: str, ranges: Ranges) -> str | None:
+    """The patch path a finding path names, or None. `.` and `..` segments are collapsed.
+    An `a/` or `b/` prefix is stripped only when the full path is not in the patch."""
+    normal = posixpath.normpath(path) if path else path
+    if normal in ranges:
+        return normal
+    if normal.startswith(_DIFF_PREFIXES) and normal[2:] in ranges:
+        return normal[2:]
+    return None
+
+
 def _location_problem(finding: Finding, ranges: Ranges) -> str | None:
-    path = finding.path.removeprefix("./")
-    if path not in ranges:
-        return f"{finding.path} is not in the patch"
+    path = resolve_path(finding.path, ranges)
+    if path is None:
+        return f"{finding.path!r} is not in the patch"
     start, end = finding.start_line, finding.end_line
     if any(first <= start and end <= last for first, last in ranges[path]):
         return None
@@ -89,6 +114,9 @@ def support_problem(finding: Finding, ranges: Ranges, gate_checks: dict[str, boo
         return "empty claim"
     if finding.start_line < 1 or finding.end_line < finding.start_line:
         return f"invalid line range {finding.start_line}-{finding.end_line}"
+    outside = _root_problem(finding.path)
+    if outside is not None:
+        return outside
     location = _location_problem(finding, ranges)
     if location is None:
         return None
@@ -100,33 +128,28 @@ def support_problem(finding: Finding, ranges: Ranges, gate_checks: dict[str, boo
     return f"{location}; gate check {check!r} did not fail in this run"
 
 
+def _answer(finding: Finding, gate_checks: dict[str, bool]) -> FindingAnswer:
+    cited = cited_check(finding)
+    outcome = None if cited is None else gate_checks.get(cited)
+    if cited is not None and outcome is True:
+        reason = f"gate check {cited!r} passed in this run"
+        return FindingAnswer(
+            finding_id=finding.finding_id, decision="reject", reason=reason, check=cited
+        )
+    if cited is not None and outcome is False:
+        reason = f"gate check {cited!r} failed in this run"
+    else:
+        reason = "the finding cites no gate check that passed in this run"
+    return FindingAnswer(finding_id=finding.finding_id, decision="accept", reason=reason)
+
+
 def answer_high_findings(
     findings: Iterable[Finding], gate_checks: dict[str, bool]
 ) -> list[FindingAnswer]:
-    """The deterministic arbiter. It rejects a high finding only when a gate check named by
-    its fault class passed in this run and the finding cites no failed gate check. It accepts
-    every other high finding."""
-    answers = []
-    for f in findings:
-        if f.severity != "high":
-            continue
-        cited = cited_check(f)
-        cited_failed = cited is not None and gate_checks.get(cited) is False
-        if gate_checks.get(f.fault_class) is True and not cited_failed:
-            reason = f"gate check {f.fault_class!r} passed in this run"
-            answers.append(
-                FindingAnswer(
-                    finding_id=f.finding_id, decision="reject", reason=reason, check=f.fault_class
-                )
-            )
-        else:
-            reason = (
-                f"gate check {cited!r} failed in this run"
-                if cited_failed
-                else f"no passing gate check refutes this {f.fault_class} finding"
-            )
-            answers.append(FindingAnswer(finding_id=f.finding_id, decision="accept", reason=reason))
-    return answers
+    """The deterministic arbiter. It rejects a high finding only when the finding cites a
+    gate check as evidence and that check passed in this run. It accepts every other high
+    finding. It never reads `fault_class`: the critic chooses that label freely."""
+    return [_answer(f, gate_checks) for f in findings if f.severity == "high"]
 
 
 def answer_counts(answer: FindingAnswer, gate_checks: dict[str, bool]) -> bool:

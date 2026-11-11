@@ -33,6 +33,7 @@ class PipelineState(TypedDict, total=False):
     critic_approves: bool
     critic_output: str | None
     critic_malformed: bool
+    patch_unreadable: bool
     findings: list[dict[str, Any]]
     unsupported: list[dict[str, str]]
     answers: list[dict[str, Any]]

@@ -86,6 +86,7 @@ class Agents:
         self._critic_output = critic_output
         self._gate_checks = gate_checks or {}
         self.answers: list[dict[str, Any]] | None = None
+        self.patch = PATCH
 
     def steps(self) -> AgentSteps:
         answer = self.answer if self.answers is not None else None
@@ -96,7 +97,7 @@ class Agents:
 
     def build(self, state: PipelineState) -> dict[str, Any]:
         self.calls["build"] += 1
-        return {"patch": PATCH}
+        return {"patch": self.patch}
 
     def gate(self, state: PipelineState) -> dict[str, Any]:
         return {"gate_passed": all(self._gate_checks.values()), "gate_checks": self._gate_checks}
@@ -253,10 +254,10 @@ def test_accepted_high_finding_loops_to_build_and_stops_at_the_attempt_limit(
     assert routes == ["build"] * (limit - 1) + ["give_up"]
 
 
-def test_deterministic_arbiter_rejects_a_finding_its_passing_gate_check_refutes(
+def test_deterministic_arbiter_rejects_a_finding_whose_cited_gate_check_passed(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path
 ) -> None:
-    output = json.dumps([finding(fault_class="tests", claim="the tests now fail")])
+    output = json.dumps([finding(fault_class="logic", evidence="gate:tests")])
     run = _run(deps, Agents(output, {"tests": True}), task, tmp_path)
     [answer] = run.state["answers"]
     assert answer["decision"] == "reject" and answer["check"] == "tests"
@@ -349,3 +350,69 @@ def test_pure_functions_cover_and_answer() -> None:
     )
     assert unanswered_high([high, low], [answer], {}) == []
     assert unanswered_high([high, low], [], {}) == ["F1"]
+
+
+@pytest.mark.parametrize("output", ["[]", json.dumps([finding()])])
+def test_unreadable_patch_never_reaches_approval(
+    deps: PipelineDeps, task: TaskSpec, tmp_path: Path, output: str
+) -> None:
+    agents = Agents(output, {"tests": True})
+    agents.patch = "def f(): pass"  # not a diff, so no finding can be located in it
+    run = _run(deps, agents, task, tmp_path)
+    limit = deps.settings.max_build_attempts
+    assert not run.paused and "inbox_item" not in run.state and run.state["outcome"] == "failed"
+    assert run.state["patch_unreadable"] is True
+    assert "patch unreadable" in run.state["failure_reason"] and agents.calls["build"] == limit
+    events = _events(deps, task, "patch_unreadable")
+    assert len(events) == limit and events[0]["unscreened"] == [
+        f["finding_id"] for f in json.loads(output)
+    ]
+    assert run.metrics["unsupported_findings"] == 0  # the critic is not blamed for the patch
+
+
+def test_fault_class_is_never_read_as_a_gate_check_name() -> None:
+    labelled = Finding.model_validate(finding(fault_class="tests"))
+    [answer] = answer_high_findings([labelled], {"tests": True, "lint": True})
+    assert answer.decision == "accept" and answer.check == ""
+    cites_passing = labelled.model_copy(update={"evidence": "gate:lint"})
+    [answer] = answer_high_findings([cites_passing], {"tests": True, "lint": True})
+    assert answer.decision == "reject" and answer.check == "lint"
+
+
+@pytest.mark.parametrize(
+    ("path", "problem"),
+    [
+        ("src/app.py", None),
+        ("./src/app.py", None),
+        ("src/./app.py", None),
+        ("src/../src/app.py", None),
+        ("b/src/app.py", None),
+        ("a/src/app.py", None),
+        ("c/src/app.py", "not in the patch"),
+        ("/src/app.py", "absolute path"),
+        ("../src/app.py", "outside the repository root"),
+        ("src/../../app.py", "outside the repository root"),
+        ("", "not in the patch"),
+    ],
+)
+def test_finding_paths_are_normalised_before_lookup(path: str, problem: str | None) -> None:
+    located = Finding.model_validate(finding(path=path))
+    found = support_problem(located, changed_ranges(PATCH), {})
+    if problem is None:
+        assert found is None
+    else:
+        assert found is not None and problem in found
+
+
+@pytest.mark.parametrize("path", ["/etc/passwd", "../outside.py"])
+def test_paths_outside_the_root_stay_unsupported_even_with_a_failed_check(path: str) -> None:
+    cited = Finding.model_validate(finding(path=path, evidence="gate:tests"))
+    assert support_problem(cited, changed_ranges(PATCH), {"tests": False}) is not None
+
+
+def test_prefix_is_stripped_only_when_the_full_path_is_not_in_the_patch() -> None:
+    ranges = {"b/x.py": [(1, 5)], "x.py": [(100, 100)]}
+    inside_b = Finding.model_validate(finding(path="b/x.py", start_line=1, end_line=2))
+    assert support_problem(inside_b, ranges, {}) is None
+    stripped = Finding.model_validate(finding(path="a/x.py", start_line=100, end_line=100))
+    assert support_problem(stripped, ranges, {}) is None

@@ -51,7 +51,8 @@ class Agents:
 
     def build(self, state: PipelineState) -> dict[str, Any]:
         self.calls["build"] += 1
-        return {"patch": f"diff attempt {self.calls['build']}"}
+        n = self.calls["build"]
+        return {"patch": f"--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+attempt {n}\n"}
 
     def gate(self, state: PipelineState) -> dict[str, Any]:
         self.calls["gate"] += 1

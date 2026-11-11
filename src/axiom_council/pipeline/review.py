@@ -1,7 +1,8 @@
 """Graph steps that screen critic findings and arbitrate over them (backlog A9 and A10).
 
 `screen` keeps only supported findings; it counts, stores and audits the others with a reason.
-Malformed critic output gives zero findings, is audited and blocks approval.
+Malformed critic output gives zero findings, is audited and blocks approval. A non-empty
+patch that has no readable hunks also blocks approval: code cannot screen findings against it.
 `answer_deterministic` is the default arbiter. A routed arbiter can replace it through
 `AgentSteps.answer`; its answers pass the same coverage check.
 `arbitrate` runs the coverage check and chooses the next node. The graph routes on its result.
@@ -59,13 +60,15 @@ def decide(
     state: PipelineState, unanswered: list[str], accepted: list[str], max_attempts: int
 ) -> tuple[str, str]:
     """The next node and the reason. An unanswered high finding fails the run at once.
-    A malformed critic output, a failed gate or an accepted high finding sends the run back
-    to build while attempts remain, and fails it after that."""
+    A malformed critic output, an unreadable patch, a failed gate or an accepted high finding
+    sends the run back to build while attempts remain, and fails it after that."""
     if unanswered:
         return "give_up", f"unanswered high findings: {unanswered}"
     problems = []
     if state.get("critic_malformed"):
         problems.append("critic output malformed")
+    if state.get("patch_unreadable"):
+        problems.append("patch unreadable")
     if not state.get("gate_passed"):
         problems.append("gate failed")
     if accepted:
@@ -97,14 +100,25 @@ class ReviewSteps:
     def screen(self, state: PipelineState) -> dict[str, Any]:
         """Drop every finding code cannot resolve. Answers from an earlier attempt are cleared."""
         task_id = state["task_id"]
-        cleared: dict[str, Any] = {"findings": [], "unsupported": [], "answers": []}
+        cleared: dict[str, Any] = {
+            "findings": [],
+            "unsupported": [],
+            "answers": [],
+            "critic_malformed": False,
+            "patch_unreadable": False,
+        }
         try:
             findings = self._parse(state.get("critic_output"))
         except FindingsMalformed as exc:
             error = str(exc)[:_MAX_ERROR_CHARS]
             self._audit.append("critic_output_malformed", task_id, _ACTOR, error=error)
             return {**cleared, "critic_malformed": True}
-        ranges = changed_ranges(state.get("patch", ""))
+        patch = state.get("patch", "")
+        ranges = changed_ranges(patch)
+        if patch.strip() and not ranges:
+            unscreened = [f.finding_id for f in findings]
+            self._audit.append("patch_unreadable", task_id, _ACTOR, unscreened=unscreened)
+            return {**cleared, "patch_unreadable": True}
         checks = state.get("gate_checks", {})
         supported, unsupported = [], []
         for f in findings:
@@ -126,7 +140,6 @@ class ReviewSteps:
             **cleared,
             "findings": supported,
             "unsupported": unsupported,
-            "critic_malformed": False,
             "unsupported_findings": total,
         }
 
