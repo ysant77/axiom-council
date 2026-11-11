@@ -3,6 +3,11 @@
 Each rule is a simple code check over the added and removed lines of one hunk. A rule
 reports a fault class from the settings taxonomy and a new-file line range. The rules are
 generic; none of them reads a case id, a title or an answer key.
+
+The baseline score is in-sample. The rules and the admission fixtures were written in the
+same change by the same author, so the rules found 10 of 12 seeded faults on cases they
+were written beside. Do not read that number as the recall on new code. A held-out case
+set from another author is needed for that. Results files record `baseline_in_sample`.
 """
 
 from __future__ import annotations
@@ -18,6 +23,9 @@ from axiom_council.evals.critic_contracts import CriticCase, CriticKind, CriticO
 from axiom_council.pipeline.findings import Finding
 
 Severity = Literal["high", "medium", "low"]
+
+# The fixtures and these rules share an author and a change; see the module docstring.
+BASELINE_IN_SAMPLE = True
 
 _CONTAINMENT = re.compile(r"is_relative_to\(|commonpath\(")
 _RAISE = re.compile(r"^\s*raise\b")

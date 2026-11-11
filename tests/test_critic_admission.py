@@ -246,6 +246,7 @@ def _check_rows(rows: list[dict[str, Any]], harness: str, model_id: str) -> None
     assert rule_rows and all(r["placement"] is None for r in rule_rows)
     decision = next(r for r in rows if r["record"] == "decision")
     assert decision["decision"]["admitted"] == [model_id]
+    assert decision["baseline_in_sample"] is True
 
 
 def test_run_admission_counts_invalid_model_output_and_falls_back(

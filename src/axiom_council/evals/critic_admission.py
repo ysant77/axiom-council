@@ -33,7 +33,7 @@ from axiom_council.evals.critic_contracts import (
     load_cases,
 )
 from axiom_council.evals.model_critic import ModelCritic
-from axiom_council.evals.rule_critic import RuleCritic
+from axiom_council.evals.rule_critic import BASELINE_IN_SAMPLE, RuleCritic
 from axiom_council.evals.run_provenance import run_provenance
 from axiom_council.pipeline.findings import Finding, resolve_path
 from axiom_council.provenance import Placement, fixture_hash, harness_hash, source_commit
@@ -278,6 +278,7 @@ def run_admission(
     )  # fmt: skip
     decision = admit(summary, cfg)
     rows.append({"record": "decision", "decision": decision.model_dump(),
+                 "baseline_in_sample": BASELINE_IN_SAMPLE,
                  "settings": cfg.model_dump()})  # fmt: skip
     common = {"run_id": run_id, "harness_hash": summary.harness_hash,
               "fixture_hash": summary.fixture_hash, "source_commit": source_commit(),
