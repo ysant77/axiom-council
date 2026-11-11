@@ -62,7 +62,7 @@ class Agents:
 
     def critique(self, state: PipelineState) -> dict[str, Any]:
         self.calls["critique"] += 1
-        return {"critic_approves": self._critic, "critique": "looks fine"}
+        return {"critic_approves": self._critic, "critique": "looks fine", "critic_output": "[]"}
 
 
 @pytest.fixture
