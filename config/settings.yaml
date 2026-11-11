@@ -58,3 +58,24 @@ settings:
     sample_interval_s: 0.5
     grid_kg_co2e_per_kwh: 0.402
     grid_factor_source: "EMA Singapore Energy Statistics, average GEF 2024"
+
+  # Critic admission test (backlog A8). A critic or verifier role runs in the pipeline only
+  # after it meets these thresholds on cases with known answers. A finding supports a seeded
+  # fault only if its path, line range and fault class all match the answer key.
+  # The 0.5 recall floor equals the code-rule baseline in an earlier measurement (6 of 12).
+  - name: critic_admission
+    prompt_id: critic.admission
+    num_predict: 2000
+    num_ctx: 8192
+    temperature: 0.0
+    seed: null
+    fault_classes: [off_by_one, swallowed_exception, path_traversal, injection,
+                    weakened_assertion, changed_default, resource_leak, wrong_unit,
+                    race_condition, api_break, missing_validation, type_coercion]
+    min_supported_recall: 0.5       # seeded cases with at least one supporting finding
+    max_clean_false_high_rate: 0.1  # clean cases with any high finding
+    min_high_precision: 0.5         # high findings that support the seeded fault
+    max_invalid_output_rate: 0.1    # replies that are not strictly valid findings JSON
+    min_seeded_cases: 12
+    min_clean_cases: 12
+    max_finding_lines: 20           # a wider finding cannot support a fault

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from axiom_council.contracts import Capability, Strict, TaskClass
 
@@ -102,6 +102,41 @@ class EnergySettings(Strict):
     grid_factor_source: str = "unset"
 
 
+FAULT_CLASSES = (
+    "off_by_one", "swallowed_exception", "path_traversal", "injection", "weakened_assertion",
+    "changed_default", "resource_leak", "wrong_unit", "race_condition", "api_break",
+    "missing_validation", "type_coercion",
+)  # fmt: skip
+
+
+class CriticAdmissionSettings(Strict):
+    """Admission test for critic and verifier roles (backlog A8): inference parameters, the
+    fault taxonomy that findings must use, and the thresholds a critic must meet."""
+
+    prompt_id: str = "critic.admission"
+    num_predict: int = Field(default=2000, gt=0)
+    num_ctx: int = Field(default=8192, gt=0)
+    temperature: float = Field(default=0.0, ge=0)
+    seed: int | None = None
+    fault_classes: tuple[str, ...] = Field(default=FAULT_CLASSES, min_length=1)
+    min_supported_recall: float = Field(default=0.5, ge=0, le=1)
+    max_clean_false_high_rate: float = Field(default=0.1, ge=0, le=1)
+    min_high_precision: float = Field(default=0.5, ge=0, le=1)
+    max_invalid_output_rate: float = Field(default=0.1, ge=0, le=1)
+    min_seeded_cases: int = Field(default=12, ge=1)
+    min_clean_cases: int = Field(default=12, ge=1)
+    max_finding_lines: int = Field(
+        default=20, ge=1, description="a wider finding cannot support a fault: it locates nothing"
+    )
+
+    @field_validator("fault_classes")
+    @classmethod
+    def _unique(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("fault_classes must be unique")
+        return value
+
+
 class Settings(Strict):
     """Every named setting; an unknown name in the store fails validation, never passes silently."""
 
@@ -109,6 +144,7 @@ class Settings(Strict):
     bakeoff: BakeoffSettings = Field(default_factory=BakeoffSettings)
     pipeline: PipelineSettings = Field(default_factory=PipelineSettings)
     energy: EnergySettings = Field(default_factory=EnergySettings)
+    critic_admission: CriticAdmissionSettings = Field(default_factory=CriticAdmissionSettings)
 
     @classmethod
     def from_entries(cls, raw: dict[str, dict[str, Any]]) -> Settings:
