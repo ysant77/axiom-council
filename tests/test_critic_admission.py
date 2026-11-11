@@ -23,10 +23,10 @@ from axiom_council.evals.critic_contracts import (
     CriticOutput,
     CriticScore,
     FaultKey,
-    Finding,
     load_cases,
 )
 from axiom_council.ledger import CapabilityLedger
+from axiom_council.pipeline.findings import Finding
 from axiom_council.registry import Registry
 from axiom_council.settings import CriticAdmissionSettings
 
@@ -53,8 +53,6 @@ def test_finding_has_exactly_the_shared_fields() -> None:
         "evidence",
     ]  # fmt: skip
     with pytest.raises(ValueError):
-        finding(end_line=5)
-    with pytest.raises(ValueError):
         Finding.model_validate({**finding().model_dump(), "confidence": 0.9})
 
 
@@ -69,6 +67,12 @@ def test_finding_has_exactly_the_shared_fields() -> None:
         ({"start_line": 13, "end_line": 14}, False),
         ({"fault_class": "injection"}, False),  # right place, wrong mechanism
         ({"start_line": 1, "end_line": 100}, False),  # too wide to locate anything
+        ({"start_line": 12, "end_line": 11}, False),  # inverted range
+        ({"start_line": 0, "end_line": 11}, False),  # line numbers start at 1
+        ({"path": "./src/a.py"}, True),  # the pipeline's path rules apply
+        ({"path": "src/../src/a.py"}, True),
+        ({"path": "../src/a.py"}, False),
+        ({"path": "/src/a.py"}, False),
     ],
 )
 def test_support_needs_path_overlap_and_class(overrides: dict[str, Any], expected: bool) -> None:

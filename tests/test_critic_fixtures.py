@@ -8,8 +8,8 @@ import pytest
 import yaml
 
 from axiom_council.contracts import TaskClass
+from axiom_council.diffs import DiffError, change_blocks, parse_diff
 from axiom_council.evals.critic_contracts import CriticCase, load_cases
-from axiom_council.evals.unified_diff import DiffError, change_blocks, parse_diff
 from axiom_council.registry import Registry
 from axiom_council.settings import CriticAdmissionSettings
 
@@ -124,6 +124,18 @@ def test_parser_tracks_new_line_numbers_and_blocks() -> None:
     ]  # fmt: skip
     assert [[ln.text for ln in block] for block in change_blocks(first)] == [["b", "B"], ["d"]]
     assert hunks[1].path == "gone.py" and hunks[1].new_count == 0
+
+
+def test_parser_accepts_git_extended_headers() -> None:
+    diff = (
+        "diff --git a/x.py b/x.py\nindex 83db48f..bf269f4 100644\n"
+        "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-a\n+b\n"
+        "diff --git a/new.py b/new.py\nnew file mode 100644\nindex 0000000..e69de29\n"
+        "--- /dev/null\n+++ b/new.py\n@@ -0,0 +1 @@\n+x\n"
+    )
+    assert [(h.path, h.new_start, h.new_end) for h in parse_diff(diff)] == [
+        ("x.py", 1, 1), ("new.py", 1, 1)
+    ]  # fmt: skip
 
 
 def test_critic_prompt_does_not_shadow_the_reviewer_prompt(registry: Registry) -> None:

@@ -10,7 +10,7 @@ import pytest
 
 from axiom_council.evals.critic_admission import score_case, score_critic
 from axiom_council.evals.critic_contracts import CriticCase, load_cases
-from axiom_council.evals.model_critic import ModelCritic, parse_findings
+from axiom_council.evals.model_critic import ModelCritic, critic_output
 from axiom_council.evals.rule_critic import RuleCritic
 from axiom_council.registry import Registry
 from axiom_council.settings import CriticAdmissionSettings
@@ -29,12 +29,11 @@ def _cases() -> tuple[CriticCase, ...]:
     return load_cases(FIXTURES, SETTINGS.fault_classes)
 
 
-def test_parse_findings_accepts_strict_json_in_fences_and_think_blocks() -> None:
-    text = "<think>hmm</think>\n```json\n" + json.dumps({"findings": [ITEM]}) + "\n```"
-    output = parse_findings(text)
+def test_critic_output_uses_the_pipeline_findings_contract() -> None:
+    output = critic_output(json.dumps({"findings": [ITEM]}), limit=5)
     assert output.valid and len(output.findings) == 1
     assert output.findings[0].fault_class == "injection"
-    empty = parse_findings('{"findings": []}')
+    empty = critic_output('{"findings": []}', limit=5)
     assert empty.valid and empty.findings == ()
 
 
@@ -45,15 +44,20 @@ def test_parse_findings_accepts_strict_json_in_fences_and_think_blocks() -> None
         '{"findings": [',  # truncated
         '{"verdict": "reject"}',  # no findings key
         '{"findings": {"a": 1}}',  # not a list
+        json.dumps([ITEM]),  # a bare array is not the findings object
+        "```json\n" + json.dumps({"findings": [ITEM]}) + "\n```",  # fenced
+        "<think>hmm</think>" + json.dumps({"findings": [ITEM]}),  # text around the object
         json.dumps({"findings": [{**ITEM, "confidence": 0.9}]}),  # unknown field
         json.dumps({"findings": [{**ITEM, "start_line": "3"}]}),  # string, not int
         json.dumps({"findings": [{**ITEM, "severity": "critical"}]}),  # unknown severity
         json.dumps({"findings": [ITEM, "free text"]}),  # one bad item spoils the output
         json.dumps({"findings": [ITEM], "notes": "extra key"}),
+        json.dumps({"findings": [ITEM, ITEM]}),  # duplicate finding ids
+        json.dumps({"findings": [{**ITEM, "finding_id": f"f{i}"} for i in range(6)]}),  # > limit
     ],
 )
-def test_parse_findings_rejects_anything_not_strictly_valid(text: str) -> None:
-    output = parse_findings(text)
+def test_critic_output_rejects_anything_not_strictly_valid(text: str) -> None:
+    output = critic_output(text, limit=5)
     assert not output.valid and output.findings == ()
 
 

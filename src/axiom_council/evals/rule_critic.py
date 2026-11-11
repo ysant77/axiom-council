@@ -13,8 +13,9 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Literal
 
-from axiom_council.evals.critic_contracts import CriticCase, CriticKind, CriticOutput, Finding
-from axiom_council.evals.unified_diff import DiffLine, Hunk, change_blocks, parse_diff
+from axiom_council.diffs import DiffLine, Hunk, change_blocks, parse_diff
+from axiom_council.evals.critic_contracts import CriticCase, CriticKind, CriticOutput
+from axiom_council.pipeline.findings import Finding
 
 Severity = Literal["high", "medium", "low"]
 

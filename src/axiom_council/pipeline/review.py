@@ -15,6 +15,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from axiom_council.audit import AuditLog
+from axiom_council.diffs import changed_ranges
 from axiom_council.pipeline.findings import (
     Finding,
     FindingAnswer,
@@ -27,7 +28,6 @@ from axiom_council.pipeline.findings import (
     unanswered_high,
 )
 from axiom_council.pipeline.guard import PipelineState
-from axiom_council.pipeline.hunks import changed_ranges
 
 _ACTOR = "council"
 _MAX_ERROR_CHARS = 1000

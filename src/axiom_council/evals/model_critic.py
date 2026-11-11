@@ -1,19 +1,18 @@
 """Model critic adapter: asks one placement for located findings through a `ChatProvider`.
 
-The prompt comes from the registry (`critic_admission.prompt_id`). The reply must be one
-JSON object with a `findings` list, and every item must validate strictly as a `Finding`.
-Anything else gives zero findings and `valid=False`, which the admission test counts.
+The prompt comes from the registry (`critic_admission.prompt_id`). The reply is read by the
+pipeline's own parser (`pipeline.findings.parse_findings`) with the pipeline's finding
+limit, so a critic that passes admission produces output the pipeline accepts. Output the
+parser refuses gives zero findings and `valid=False`, which the admission test counts.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from pydantic import ValidationError
-
 from axiom_council.bus.spotlight import fence
-from axiom_council.evals.critic_contracts import CriticCase, CriticKind, CriticOutput, Finding
-from axiom_council.evals.scoring import extract_json
+from axiom_council.evals.critic_contracts import CriticCase, CriticKind, CriticOutput
+from axiom_council.pipeline.findings import FindingsMalformed, parse_findings
 from axiom_council.provenance import Placement, placement_for, think_value
 from axiom_council.providers import ChatProvider
 from axiom_council.registry import Registry
@@ -21,20 +20,14 @@ from axiom_council.registry import Registry
 _RAW_LIMIT = 4000  # characters of the raw reply kept in results
 
 
-def parse_findings(text: str) -> CriticOutput:
-    """Strict parse: one bad item, an unknown key or a missing list spoils the whole reply."""
+def critic_output(text: str, limit: int) -> CriticOutput:
+    """The pipeline parser's verdict on one reply, as an admission record."""
     raw = text[:_RAW_LIMIT]
-    payload = extract_json(text)
-    if payload is None or set(payload) != {"findings"}:
-        return CriticOutput(valid=False, raw=raw)
-    items = payload["findings"]
-    if not isinstance(items, list):
-        return CriticOutput(valid=False, raw=raw)
     try:
-        findings = tuple(Finding.model_validate(item, strict=True) for item in items)
-    except ValidationError:
+        findings = parse_findings(text, limit)
+    except FindingsMalformed:
         return CriticOutput(valid=False, raw=raw)
-    return CriticOutput(findings=findings, raw=raw)
+    return CriticOutput(findings=tuple(findings), raw=raw)
 
 
 class ModelCritic:
@@ -89,4 +82,4 @@ class ModelCritic:
             temperature=cfg.temperature,
             extra=self._extra(),
         )
-        return parse_findings(result.output)
+        return critic_output(result.output, self._registry.settings.pipeline.max_findings)

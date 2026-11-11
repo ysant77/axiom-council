@@ -1,5 +1,7 @@
 """Typed contracts for the critic admission test (backlog A8): cases with known answers,
-findings, scores, the summary and the decision. Also loads and checks the case fixtures."""
+critic outputs, scores, the summary and the decision. Also loads and checks the case
+fixtures. Findings use the pipeline's `Finding` type, so an admitted critic speaks the same
+contract in the pipeline."""
 
 from __future__ import annotations
 
@@ -10,7 +12,8 @@ import yaml
 from pydantic import Field, model_validator
 
 from axiom_council.contracts import Strict
-from axiom_council.evals.unified_diff import normalise_path, parse_diff
+from axiom_council.diffs import parse_diff
+from axiom_council.pipeline.findings import Finding
 
 CaseKind = Literal["seeded", "clean"]
 CriticKind = Literal["rule", "model"]
@@ -36,26 +39,6 @@ class CriticCase(Strict):
     def _key_matches_kind(self) -> CriticCase:
         if (self.kind == "seeded") != (self.key is not None):
             raise ValueError(f"case {self.id}: a seeded case has a key, a clean case has none")
-        return self
-
-
-class Finding(Strict):
-    """One located claim from a critic. The field set is fixed: a shared finding type will
-    replace this model later, so do not add fields here."""
-
-    finding_id: str
-    severity: Literal["high", "medium", "low"]
-    fault_class: str
-    path: str
-    start_line: int = Field(ge=1)
-    end_line: int = Field(ge=1)
-    claim: str
-    evidence: str
-
-    @model_validator(mode="after")
-    def _ordered(self) -> Finding:
-        if self.end_line < self.start_line:
-            raise ValueError("end_line is before start_line")
         return self
 
 
@@ -155,7 +138,7 @@ def _check_key(case: CriticCase, fault_classes: tuple[str, ...]) -> None:
         return
     if key.fault_class not in fault_classes:
         raise ValueError(f"case {case.id}: fault class {key.fault_class!r} is not in settings")
-    hunks = [h for h in parse_diff(case.diff) if h.path == normalise_path(key.path)]
+    hunks = [h for h in parse_diff(case.diff) if h.path == key.path]
     if not any(h.covers(key.start_line, key.end_line) for h in hunks):
         raise ValueError(f"case {case.id}: key location is not inside the diff")
 

@@ -12,6 +12,7 @@ import pytest
 
 from axiom_council.audit import AuditLog
 from axiom_council.contracts import Capability, TaskSpec
+from axiom_council.diffs import changed_ranges
 from axiom_council.inbox import Inbox
 from axiom_council.pipeline import (
     AgentSteps,
@@ -30,7 +31,6 @@ from axiom_council.pipeline.findings import (
     support_problem,
     unanswered_high,
 )
-from axiom_council.pipeline.hunks import changed_ranges
 from axiom_council.policy import PolicyEngine
 from axiom_council.registry import Registry
 from axiom_council.settings import NodeGrant
@@ -62,6 +62,11 @@ diff --git a/docs/gone.md b/docs/gone.md
 -b
 -c
 """
+
+
+def reply(items: list[dict[str, Any]]) -> str:
+    """The critic output contract: one JSON object with a `findings` list."""
+    return json.dumps({"findings": items})
 
 
 def finding(**overrides: Any) -> dict[str, Any]:
@@ -152,7 +157,7 @@ def _grant_arbiter(deps: PipelineDeps) -> None:
 def test_unsupported_findings_are_dropped_counted_and_audited(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path
 ) -> None:
-    output = json.dumps(
+    output = reply(
         [
             finding(finding_id="F1", path="src/other.py"),  # file not in the patch
             finding(finding_id="F2", start_line=30, end_line=31),  # outside every hunk
@@ -176,7 +181,7 @@ def test_unsupported_findings_are_dropped_counted_and_audited(
 def test_finding_citing_a_failed_gate_check_is_supported_and_accepted(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path
 ) -> None:
-    output = json.dumps([finding(path="tests/test_app.py", evidence="gate:tests")])
+    output = reply([finding(path="tests/test_app.py", evidence="gate:tests")])
     agents = Agents(output, {"tests": False, "lint": True})
     run = _run(deps, agents, task, tmp_path)
     assert run.metrics["unsupported_findings"] == 0 and len(run.state["findings"]) == 1
@@ -189,7 +194,7 @@ def test_supported_high_finding_without_an_answer_fails_closed_before_approval(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path
 ) -> None:
     _grant_arbiter(deps)
-    agents = Agents(json.dumps([finding(), finding(finding_id="F2", severity="medium")]))
+    agents = Agents(reply([finding(), finding(finding_id="F2", severity="medium")]))
     agents.answers = []  # a routed arbiter that answers nothing
     run = _run(deps, agents, task, tmp_path)
     assert not run.paused and "inbox_item" not in run.state
@@ -216,7 +221,7 @@ def test_answers_that_do_not_count_leave_the_finding_unanswered(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path, answer: dict[str, Any]
 ) -> None:
     _grant_arbiter(deps)
-    agents = Agents(json.dumps([finding()]), {"tests": True, "lint": False})
+    agents = Agents(reply([finding()]), {"tests": True, "lint": False})
     agents.answers = [answer]
     run = _run(deps, agents, task, tmp_path)
     assert run.state["outcome"] == "failed" and run.metrics["unanswered_high_findings"] == 1
@@ -226,7 +231,7 @@ def test_routed_arbiter_rejection_citing_a_passing_check_reaches_approval(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path
 ) -> None:
     _grant_arbiter(deps)
-    agents = Agents(json.dumps([finding()]), {"tests": True})
+    agents = Agents(reply([finding()]), {"tests": True})
     agents.answers = [
         {"finding_id": "F1", "decision": "reject", "reason": "tests cover it", "check": "tests"}
     ]
@@ -235,7 +240,7 @@ def test_routed_arbiter_rejection_citing_a_passing_check_reaches_approval(
 
 
 def test_routed_arbiter_needs_a_node_grant(deps: PipelineDeps, tmp_path: Path) -> None:
-    agents = Agents("[]")
+    agents = Agents(reply([]))
     agents.answers = []
     with pytest.raises(ValueError, match="no grant"):
         Pipeline(deps, agents.steps(), tmp_path / "checkpoints.sqlite3")
@@ -244,7 +249,7 @@ def test_routed_arbiter_needs_a_node_grant(deps: PipelineDeps, tmp_path: Path) -
 def test_accepted_high_finding_loops_to_build_and_stops_at_the_attempt_limit(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path
 ) -> None:
-    agents = Agents(json.dumps([finding()]), {"tests": True})
+    agents = Agents(reply([finding()]), {"tests": True})
     run = _run(deps, agents, task, tmp_path)
     limit = deps.settings.max_build_attempts
     assert agents.calls == {"build": limit, "critique": limit} and not run.paused
@@ -258,7 +263,7 @@ def test_accepted_high_finding_loops_to_build_and_stops_at_the_attempt_limit(
 def test_deterministic_arbiter_rejects_a_finding_whose_cited_gate_check_passed(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path
 ) -> None:
-    output = json.dumps([finding(fault_class="logic", evidence="gate:tests")])
+    output = reply([finding(fault_class="logic", evidence="gate:tests")])
     run = _run(deps, Agents(output, {"tests": True}), task, tmp_path)
     [answer] = run.state["answers"]
     assert answer["decision"] == "reject" and answer["check"] == "tests"
@@ -270,11 +275,15 @@ def test_deterministic_arbiter_rejects_a_finding_whose_cited_gate_check_passed(
     [
         None,  # the critic returned a verdict only
         "the patch looks fine",
-        json.dumps({"findings": []}),
-        json.dumps([finding(severity="critical")]),
-        json.dumps([finding(extra_field=1)]),
-        json.dumps([finding(), finding()]),  # duplicate finding ids
-        json.dumps([finding(finding_id=f"F{i}") for i in range(51)]),  # above max_findings
+        "[]",  # a bare array is not the findings object
+        json.dumps([finding()]),
+        json.dumps({"findings": [], "verdict": "approve"}),  # extra key
+        "```json\n" + reply([]) + "\n```",  # fenced
+        reply([finding(severity="critical")]),
+        reply([finding(extra_field=1)]),
+        reply([finding(start_line="11")]),  # a string is not a line number
+        reply([finding(), finding()]),  # duplicate finding ids
+        reply([finding(finding_id=f"F{i}") for i in range(51)]),  # above max_findings
     ],
 )
 def test_malformed_critic_output_yields_no_findings_and_never_approves(
@@ -293,14 +302,14 @@ def test_malformed_critic_output_yields_no_findings_and_never_approves(
 def test_empty_findings_list_passes_with_zero_metrics(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path
 ) -> None:
-    run = _run(deps, Agents("[]", {"tests": True}), task, tmp_path)
+    run = _run(deps, Agents(reply([]), {"tests": True}), task, tmp_path)
     assert run.paused and run.metrics == {"unsupported_findings": 0, "unanswered_high_findings": 0}
 
 
 def test_failing_gate_without_findings_retries_then_fails_with_a_reason(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path
 ) -> None:
-    run = _run(deps, Agents("[]", {"tests": False}), task, tmp_path)
+    run = _run(deps, Agents(reply([]), {"tests": False}), task, tmp_path)
     assert run.state["outcome"] == "failed" and "gate failed" in run.state["failure_reason"]
 
 
@@ -323,9 +332,24 @@ def test_changed_ranges_reads_new_side_hunks_and_deleted_files() -> None:
     assert changed_ranges(pure_delete) == {"x.py": [(4, 4)]}
     new_file = "--- /dev/null\n+++ b/new.py\n@@ -0,0 +1 @@\n+x = 1\n"
     assert changed_ranges(new_file) == {"new.py": [(1, 1)]}
-    marker_mid_hunk = "--- a/y.py\n+++ b/y.py\n@@ -1 +1 @@\n-a\n\\ No newline\n+b\n@@ -9 +9 @@\n"
+    marker_mid_hunk = (
+        "--- a/y.py\n+++ b/y.py\n@@ -1 +1 @@\n-a\n\\ No newline\n+b\n@@ -9 +9 @@\n-c\n+d\n"
+    )
     assert changed_ranges(marker_mid_hunk) == {"y.py": [(1, 1), (9, 9)]}
     assert changed_ranges("--- /dev/null\n+++ /dev/null\n@@ -0,0 +0,0 @@\n") == {}
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        "--- a/y.py\n+++ b/y.py\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n",  # hunk with no body
+        "--- a/y.py\n+++ b/y.py\n@@ -1,3 +1,3 @@\n-a\n+b\n",  # body shorter than header
+        "--- a/y.py\n+++ b/y.py\n@@ -1 +1 @@\n-a\n+b\n+c\n",  # body longer than header
+        "Here is the patch:\n--- a/y.py\n+++ b/y.py\n@@ -1 +1 @@\n-a\n+b\n",  # prose
+    ],
+)
+def test_inconsistent_diff_gives_no_ranges(patch: str) -> None:
+    assert changed_ranges(patch) == {}
 
 
 def test_support_problem_rules() -> None:
@@ -342,6 +366,34 @@ def test_support_problem_rules() -> None:
     assert "outside" in str(support_problem(straddles, ranges, {}))
 
 
+def test_parse_findings_accepts_only_the_findings_object() -> None:
+    parsed = parse_findings("  " + reply([finding()]) + "\n", limit=5)
+    assert [f.finding_id for f in parsed] == ["F1"]
+    assert parse_findings(reply([]), limit=5) == []
+    bad = [
+        "[]",
+        json.dumps([finding()]),
+        json.dumps({"findings": [], "notes": "x"}),
+        json.dumps({"items": []}),
+        reply([finding(), finding()]),
+        reply([finding(finding_id=f"F{i}") for i in range(6)]),
+        reply([finding(end_line="12")]),
+    ]
+    for output in bad:
+        with pytest.raises(FindingsMalformed):
+            parse_findings(output, limit=5)
+
+
+def test_inconsistent_patch_blocks_approval_as_unreadable(
+    deps: PipelineDeps, task: TaskSpec, tmp_path: Path
+) -> None:
+    agents = Agents(reply([finding()]), {"tests": True})
+    agents.patch = "--- a/src/app.py\n+++ b/src/app.py\n@@ -10,3 +10,3 @@\n-keep = 1\n+keep = 2\n"
+    run = _run(deps, agents, task, tmp_path)
+    assert run.state["patch_unreadable"] is True and run.state["outcome"] == "failed"
+    assert _events(deps, task, "patch_unreadable")
+
+
 def test_pure_functions_cover_and_answer() -> None:
     with pytest.raises(FindingsMalformed):
         parse_findings("[1]", limit=5)
@@ -355,7 +407,7 @@ def test_pure_functions_cover_and_answer() -> None:
     assert unanswered_high([high, low], [], {}) == ["F1"]
 
 
-@pytest.mark.parametrize("output", ["[]", json.dumps([finding()])])
+@pytest.mark.parametrize("output", [reply([]), reply([finding()])])
 def test_unreadable_patch_never_reaches_approval(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path, output: str
 ) -> None:
@@ -368,7 +420,7 @@ def test_unreadable_patch_never_reaches_approval(
     assert "patch unreadable" in run.state["failure_reason"] and agents.calls["build"] == limit
     events = _events(deps, task, "patch_unreadable")
     assert len(events) == limit and events[0]["unscreened"] == [
-        f["finding_id"] for f in json.loads(output)
+        f["finding_id"] for f in json.loads(output)["findings"]
     ]
     assert run.metrics["unsupported_findings"] == 0  # the critic is not blamed for the patch
 
@@ -424,7 +476,7 @@ def test_prefix_is_stripped_only_when_the_full_path_is_not_in_the_patch() -> Non
 def test_approval_request_shows_rejected_and_unsupported_findings(
     deps: PipelineDeps, task: TaskSpec, tmp_path: Path
 ) -> None:
-    output = json.dumps(
+    output = reply(
         [finding(evidence="gate:tests"), finding(finding_id="F2", path="src/elsewhere.py")]
     )
     run = _run(deps, Agents(output, {"tests": True}), task, tmp_path)

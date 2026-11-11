@@ -30,13 +30,12 @@ from axiom_council.evals.critic_contracts import (
     CriticScore,
     CriticVerdict,
     FaultKey,
-    Finding,
     load_cases,
 )
 from axiom_council.evals.model_critic import ModelCritic
 from axiom_council.evals.rule_critic import RuleCritic
 from axiom_council.evals.run_provenance import run_provenance
-from axiom_council.evals.unified_diff import normalise_path
+from axiom_council.pipeline.findings import Finding, resolve_path
 from axiom_council.provenance import Placement, fixture_hash, harness_hash, source_commit
 from axiom_council.providers import ChatProvider
 from axiom_council.registry import Registry
@@ -49,13 +48,15 @@ def _class_id(value: str) -> str:
 
 
 def supports(finding: Finding, key: FaultKey, *, max_lines: int) -> bool:
-    """Path, line overlap and fault class must all match; the claim text is never read."""
-    if finding.end_line - finding.start_line + 1 > max_lines:
+    """Path, line overlap and fault class must all match; the claim text is never read.
+    The path is resolved by the pipeline's own rule, so both judge a path the same way."""
+    start, end = finding.start_line, finding.end_line
+    if start < 1 or end < start or end - start + 1 > max_lines:
         return False
     return (
-        normalise_path(finding.path) == normalise_path(key.path)
-        and finding.start_line <= key.end_line
-        and finding.end_line >= key.start_line
+        resolve_path(finding.path, {key.path: [(key.start_line, key.end_line)]}) == key.path
+        and start <= key.end_line
+        and end >= key.start_line
         and _class_id(finding.fault_class) == _class_id(key.fault_class)
     )
 
