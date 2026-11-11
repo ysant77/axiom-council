@@ -144,7 +144,7 @@ def test_adopt_migrates_a_legacy_log_explicitly(tmp_path: Path) -> None:
     log = _log(tmp_path, db=True)
     _anchor_file(log).unlink()
     (tmp_path / "tasks.sqlite3").unlink()
-    with pytest.raises(AuditTamperError, match="anchor missing"):
+    with pytest.raises(AuditTamperError, match=r"anchor missing.*council audit adopt"):
         log.append("event", "t1", "tester")
     record = log.adopt("director", "migrate the pre-anchor log")
     assert record["event"] == "audit_adopted"

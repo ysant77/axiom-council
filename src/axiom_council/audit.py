@@ -97,6 +97,11 @@ def _anchor_problem(
     return None
 
 
+def _hint(problem: str) -> str:
+    """Point to adopt only for the states that adopt can accept."""
+    return _ADOPT_HINT if "missing" in problem or "past" in problem else ""
+
+
 def _partial_error(line_no: int | None = None) -> AuditTamperError:
     where = f" at line {line_no}" if line_no else ""
     return AuditTamperError(
@@ -228,7 +233,7 @@ class AuditLog:
                     lambda n: head if n == count else (GENESIS if n == 0 else None),
                 )  # fmt: skip
                 if problem:
-                    raise AuditTamperError(problem)
+                    raise AuditTamperError(problem + _hint(problem))
             return self._write(count, head, event, task_id, actor, data)
 
     def _verified_hashes(self) -> list[str]:
@@ -244,8 +249,7 @@ class AuditLog:
                     lambda n: hashes[n - 1] if n else GENESIS,
                 )  # fmt: skip
                 if problem:
-                    hint = _ADOPT_HINT if "missing" in problem or "past" in problem else ""
-                    raise AuditTamperError(problem + hint)
+                    raise AuditTamperError(problem + _hint(problem))
         return hashes
 
     def verify(self) -> int:
