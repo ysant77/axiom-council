@@ -97,5 +97,5 @@ def test_fsync_dir_skips_directories_on_windows(
         raise PermissionError("a directory cannot be opened on Windows")
 
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(audit_anchor.os, "open", refuse)
+    monkeypatch.setattr("axiom_council.audit_anchor.os.open", refuse)
     audit_anchor.fsync_dir(tmp_path)  # must not open the directory
