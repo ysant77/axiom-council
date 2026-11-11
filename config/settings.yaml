@@ -39,8 +39,10 @@ settings:
   - name: pipeline
     approval_action: apply_patch
     max_build_attempts: 2
-    # true: the critic returns a JSON array of findings; code drops the ones it cannot resolve
-    # in the patch or in a failed gate check, and every supported high finding needs an answer.
+    # true: the critic returns one JSON object, {"findings": [...]}, and nothing else. A bare
+    # array, an extra key or text around the object is malformed and blocks approval. Code
+    # drops findings it cannot resolve in the patch or in a failed gate check, and every
+    # supported high finding needs an answer.
     # false: the critic returns only a verdict (critic_approves), as before.
     gated_findings: true
     max_findings: 50       # critic output with more findings is malformed and blocks approval
