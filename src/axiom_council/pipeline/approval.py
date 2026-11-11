@@ -3,6 +3,9 @@
 The pause is a LangGraph interrupt; the decision lives in our inbox. Resuming succeeds only
 with a token that authorises this task, this action and the hash of the patch as it stands
 in the checkpoint now, so a patch changed after approval is refused.
+
+When findings were screened, the request also tells the director which supported high
+findings the arbiter rejected, with reason and cited check, and how many were unsupported.
 """
 
 from __future__ import annotations
@@ -18,9 +21,26 @@ from axiom_council.contracts import content_hash
 from axiom_council.inbox import Inbox
 from axiom_council.pipeline.guard import PipelineState
 
+_MAX_REASON_CHARS = 200
+
 
 class ApprovalRefused(PermissionError):
     pass
+
+
+def review_note(state: PipelineState) -> str:
+    """The finding review for the director; empty when the run did not screen findings."""
+    if "rejected_high" not in state:
+        return ""
+    rejected = state["rejected_high"]
+    note = f"; rejected high findings: {len(rejected)}"
+    if rejected:
+        lines = [
+            f"{r['finding_id']} (check {r['check']}): {r['reason'][:_MAX_REASON_CHARS]}"
+            for r in rejected
+        ]
+        note += " [" + "; ".join(lines) + "]"
+    return note + f"; unsupported findings in this run: {state.get('unsupported_findings', 0)}"
 
 
 def patch_hash(patch: str) -> str:
@@ -40,11 +60,22 @@ class ApprovalSteps:
             item = self._inbox.get(state["inbox_item"])
             if item.artifact_hash == state["artifact_hash"]:
                 return {}
+        summary = f"{state['objective'][:100]} (patch {state['artifact_hash'][:12]})"
         item = self._inbox.request_approval(
             task_id=state["task_id"],
             action=self._action,
             artifact_hash=state["artifact_hash"],
-            summary=f"{state['objective'][:100]} (patch {state['artifact_hash'][:12]})",
+            summary=summary + review_note(state),
+        )
+        self._audit.append(
+            "approval_requested",
+            state["task_id"],
+            "council",
+            item=item.item_id,
+            artifact_hash=item.artifact_hash,
+            summary=item.summary,
+            rejected_high=state.get("rejected_high", []),
+            unsupported_findings=state.get("unsupported_findings", 0),
         )
         return {"inbox_item": item.item_id}
 

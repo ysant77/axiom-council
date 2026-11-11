@@ -178,3 +178,19 @@ def accepted_high(
     return sorted(
         f.finding_id for f in findings if f.severity == "high" and f.finding_id in accepts
     )
+
+
+def rejected_high(
+    findings: Iterable[Finding], answers: Iterable[FindingAnswer], gate_checks: dict[str, bool]
+) -> list[FindingAnswer]:
+    """The counting reject of each high finding that has no counting accept, in finding order."""
+    findings, answers = list(findings), list(answers)
+    accepted = set(accepted_high(findings, answers, gate_checks))
+    rejects = {
+        a.finding_id: a for a in answers if a.decision == "reject" and answer_counts(a, gate_checks)
+    }
+    return [
+        rejects[f.finding_id]
+        for f in findings
+        if f.severity == "high" and f.finding_id in rejects and f.finding_id not in accepted
+    ]

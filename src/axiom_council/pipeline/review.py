@@ -22,6 +22,7 @@ from axiom_council.pipeline.findings import (
     accepted_high,
     answer_high_findings,
     parse_findings,
+    rejected_high,
     support_problem,
     unanswered_high,
 )
@@ -149,6 +150,10 @@ class ReviewSteps:
         answers, invalid = _answers(state.get("answers"))
         unanswered = unanswered_high(findings, answers, checks)
         accepted = accepted_high(findings, answers, checks)
+        rejected = [
+            a.model_dump(include={"finding_id", "reason", "check"})
+            for a in rejected_high(findings, answers, checks)
+        ]
         chosen, reason = decide(state, unanswered, accepted, self._max_attempts)
         total = state.get("unanswered_high_findings", 0) + len(unanswered)
         known = {f.finding_id for f in findings}
@@ -159,13 +164,18 @@ class ReviewSteps:
             route=chosen,
             reason=reason,
             accepted=accepted,
+            rejected=[r["finding_id"] for r in rejected],
             unanswered=unanswered,
             invalid_answers=invalid,
             unknown_answers=sorted({a.finding_id for a in answers} - known),
             unsupported_findings=state.get("unsupported_findings", 0),
             unanswered_high_findings=total,
         )
-        update: dict[str, Any] = {"route": chosen, "unanswered_high_findings": total}
+        update: dict[str, Any] = {
+            "route": chosen,
+            "unanswered_high_findings": total,
+            "rejected_high": rejected,
+        }
         if chosen == "give_up":
             update["failure_reason"] = reason
         return update

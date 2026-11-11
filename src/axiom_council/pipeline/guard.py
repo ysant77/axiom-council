@@ -37,6 +37,7 @@ class PipelineState(TypedDict, total=False):
     findings: list[dict[str, Any]]
     unsupported: list[dict[str, str]]
     answers: list[dict[str, Any]]
+    rejected_high: list[dict[str, str]]
     unsupported_findings: int
     unanswered_high_findings: int
     route: str

@@ -19,6 +19,7 @@ from axiom_council.pipeline import (
     PipelineDeps,
     PipelineRun,
     PipelineState,
+    patch_hash,
 )
 from axiom_council.pipeline.findings import (
     Finding,
@@ -309,6 +310,8 @@ def test_verdict_only_critic_still_works_behind_the_switch(
     deps.settings = deps.settings.model_copy(update={"gated_findings": False})
     run = _run(deps, Agents(None, {"tests": True}), task, tmp_path)
     assert run.paused  # the verdict and the gate decide, as before
+    summary = deps.inbox.get(run.state["inbox_item"]).summary
+    assert "rejected high findings" not in summary and "unsupported" not in summary
     assert not _events(deps, task, "findings_screened")
     assert run.metrics == {"unsupported_findings": 0, "unanswered_high_findings": 0}
 
@@ -416,3 +419,24 @@ def test_prefix_is_stripped_only_when_the_full_path_is_not_in_the_patch() -> Non
     assert support_problem(inside_b, ranges, {}) is None
     stripped = Finding.model_validate(finding(path="a/x.py", start_line=100, end_line=100))
     assert support_problem(stripped, ranges, {}) is None
+
+
+def test_approval_request_shows_rejected_and_unsupported_findings(
+    deps: PipelineDeps, task: TaskSpec, tmp_path: Path
+) -> None:
+    output = json.dumps(
+        [finding(evidence="gate:tests"), finding(finding_id="F2", path="src/elsewhere.py")]
+    )
+    run = _run(deps, Agents(output, {"tests": True}), task, tmp_path)
+    assert run.paused
+    item = deps.inbox.get(run.state["inbox_item"])
+    assert item.artifact_hash == patch_hash(PATCH)  # the token binding is unchanged
+    assert "rejected high findings: 1" in item.summary
+    assert "F1 (check tests): gate check 'tests' passed in this run" in item.summary
+    assert "unsupported findings in this run: 1" in item.summary
+    [request] = _events(deps, task, "approval_requested")
+    assert request["artifact_hash"] == patch_hash(PATCH) and request["summary"] == item.summary
+    assert request["rejected_high"] == [
+        {"finding_id": "F1", "reason": "gate check 'tests' passed in this run", "check": "tests"}
+    ]
+    assert request["unsupported_findings"] == 1
