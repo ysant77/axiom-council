@@ -18,6 +18,7 @@ from axiom_council.evals.session import parse_contestants, run_bakeoff
 from axiom_council.providers import ProviderError, provider_for
 from axiom_council.sandbox.runner import DockerSandbox
 from axiom_council.sandbox.selftest import selftest
+from axiom_council.verify_run import verify_run
 
 
 def _home() -> Path:
@@ -232,7 +233,11 @@ def _cmd_audit(args: argparse.Namespace) -> int:
         if not args.reason:
             print("audit adopt: --reason required", file=sys.stderr)
             return 2
-        record = log.adopt("director", args.reason)
+        try:
+            record = log.adopt("director", args.reason)
+        except ValueError as exc:
+            print(f"audit adopt: {exc}", file=sys.stderr)
+            return 2
         print(json.dumps({"adopted": record["seq"], "records": log.verify()}))
         return 0
     try:
@@ -242,6 +247,13 @@ def _cmd_audit(args: argparse.Namespace) -> int:
         return 1
     print(json.dumps({"records": head.count, "head": head.head, "chain": "intact"}))
     return 0
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    results = [Path(p) for p in args.results or []]
+    report = verify_run(_home(), results, allow_legacy=args.allow_legacy)
+    print(json.dumps(report.as_dict(), indent=2) if args.json else "\n".join(report.lines()))
+    return 0 if report.passed else 1
 
 
 def _task_args(p: argparse.ArgumentParser) -> None:
@@ -286,6 +298,16 @@ def _add_director_commands(sub: argparse._SubParsersAction[argparse.ArgumentPars
     audit.add_argument("action", nargs="?", choices=["verify", "adopt"], default="verify")
     audit.add_argument("--reason", help="why the current log is trusted (adopt only)")
     audit.set_defaults(fn=_cmd_audit)
+
+    verify = sub.add_parser("verify", help="verify recorded runs offline (no model or network)")
+    verify.add_argument(
+        "--results", nargs="+", action="extend", help="bake-off results files (default: all)"
+    )
+    verify.add_argument("--json", action="store_true", help="print a machine-readable report")
+    verify.add_argument(
+        "--allow-legacy", action="store_true", help="rows without provenance warn, not fail"
+    )
+    verify.set_defaults(fn=_cmd_verify)
 
 
 def _add_infra_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:

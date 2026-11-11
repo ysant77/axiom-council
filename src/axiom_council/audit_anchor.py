@@ -107,12 +107,15 @@ class SqliteAnchor:
     def read(self) -> Anchor | None:
         if not self.db.exists():
             return None
-        conn = sqlite3.connect(self.db, timeout=30)
+        conn = sqlite3.connect(self.db.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
         try:
-            conn.executescript(_TABLE)
             row = conn.execute(
                 "SELECT count, head FROM audit_anchor WHERE log = ?", (self.log_name,)
             ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc):
+                return None
+            raise AnchorError(f"unreadable database anchor in {self.db}: {exc}") from exc
         finally:
             conn.close()
         if row is None:

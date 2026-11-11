@@ -96,16 +96,21 @@ class Registry(Strict):
     settings: Settings = Field(default_factory=Settings)
 
     @classmethod
-    def from_store(cls, store: ConfigStore) -> Registry:
+    def from_store(cls, store: ConfigStore, *, as_of: str | None = None) -> Registry:
+        """The active config, or with as_of (an ISO time) the config that was active then."""
+
+        def active(kind: str) -> dict[str, dict[str, Any]]:
+            return store.active(kind, as_of=as_of)
+
         registry = cls(
-            models={k: ModelCard(**v) for k, v in store.active("model").items()},
-            nodes={k: NodeSpec(**v) for k, v in store.active("node").items()},
-            roles={k: RolePolicy(**v) for k, v in store.active("role").items()},
-            workspaces={k: WorkspacePolicy(**v) for k, v in store.active("workspace").items()},
-            prompts={k: PromptTemplate(**v) for k, v in store.active("prompt").items()},
-            routes={k: Route(**v) for k, v in store.active("route").items()},
-            sandboxes={k: SandboxProfile(**v) for k, v in store.active("sandbox").items()},
-            settings=Settings.from_entries(store.active("setting")),
+            models={k: ModelCard(**v) for k, v in active("model").items()},
+            nodes={k: NodeSpec(**v) for k, v in active("node").items()},
+            roles={k: RolePolicy(**v) for k, v in active("role").items()},
+            workspaces={k: WorkspacePolicy(**v) for k, v in active("workspace").items()},
+            prompts={k: PromptTemplate(**v) for k, v in active("prompt").items()},
+            routes={k: Route(**v) for k, v in active("route").items()},
+            sandboxes={k: SandboxProfile(**v) for k, v in active("sandbox").items()},
+            settings=Settings.from_entries(active("setting")),
         )
         registry.validate_links()
         return registry

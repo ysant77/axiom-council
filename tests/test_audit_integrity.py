@@ -214,6 +214,8 @@ def test_cli_audit_reports_damage_and_adopts(
     assert cli.main(["audit", "adopt", "--reason", "migrate legacy log"]) == 0
     assert json.loads(capsys.readouterr().out.splitlines()[-1])["records"] == 2
     assert cli.main(["audit"]) == 0
+    assert cli.main(["audit", "adopt", "--reason", "nothing changed here"]) == 2
+    assert "nothing to adopt" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(

@@ -103,13 +103,29 @@ class ConfigStore:
         ).fetchone()
         return ConfigEntry(kind, key, row[0], json.loads(row[1]), row[2]) if row else None
 
-    def active(self, kind: str) -> dict[str, dict[str, Any]]:
+    def active(self, kind: str, *, as_of: str | None = None) -> dict[str, dict[str, Any]]:
+        """Active entries of one kind; with as_of (an ISO time), the entries active then."""
         self._check_kind(kind)
-        rows = self._db.execute(
-            "SELECT key, body FROM config_entries WHERE kind = ? AND active = 1 ORDER BY key",
-            (kind,),
-        ).fetchall()
+        if as_of is None:
+            rows = self._db.execute(
+                "SELECT key, body FROM config_entries WHERE kind = ? AND active = 1 ORDER BY key",
+                (kind,),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT key, body FROM config_entries e WHERE kind = ? AND created_at <= ?"
+                " AND version = (SELECT MAX(version) FROM config_entries"
+                " WHERE kind = e.kind AND key = e.key AND created_at <= ?) ORDER BY key",
+                (kind, as_of, as_of),
+            ).fetchall()
         return {key: json.loads(body) for key, body in rows}
+
+    def version_times(self) -> list[str]:
+        """Every distinct time at which the stored config changed, oldest first."""
+        rows = self._db.execute(
+            "SELECT DISTINCT created_at FROM config_entries ORDER BY created_at"
+        ).fetchall()
+        return [row[0] for row in rows]
 
     def history(self, kind: str, key: str) -> list[ConfigEntry]:
         self._check_kind(kind)
