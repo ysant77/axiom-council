@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from axiom_council.audit import AuditLog
+from axiom_council.audit import open_audit
 from axiom_council.configstore import ConfigStore
 from axiom_council.contracts import (
     Capability,
@@ -91,7 +91,7 @@ class Council:
         self._provider_factory = provider_factory
         self.home = home
         self.policy = PolicyEngine(registry.workspaces, registry.roles)
-        self.audit = AuditLog(home / "audit.jsonl")
+        self.audit = open_audit(home)
         self.ledger = CapabilityLedger(home / "ledger.sqlite3")
         self.inbox = Inbox(home / "inbox")
         self.tasks = TaskStore(home / "tasks.sqlite3")
@@ -265,7 +265,10 @@ class Council:
             self.audit.append("approval_invalid", task_id, "council", item=item.item_id)
             raise PermissionError(f"{task_id} has no valid approval for this exact task")
         self.tasks.transition(task_id, S.APPROVED)
-        self.audit.append("task_resumed", task_id, token.approver, token=token.token_id)
+        self.audit.append(
+            "task_resumed", task_id, token.approver, token=token.token_id, artifact=artifact,
+            model=record.pinned_model, node=record.pinned_node,
+        )  # fmt: skip
         if self._admit(record.spec, record.role):
             return RunOutcome(S.POLICY_REJECTED, reasons=("policy changed since approval",))
         return self._run_pinned(record)
