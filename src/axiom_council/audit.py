@@ -25,7 +25,6 @@ director keeps or a remote append-only store. The files stay writable; this desi
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -43,6 +42,7 @@ from axiom_council.audit_anchor import (
     fsync_dir,
 )
 from axiom_council.contracts import content_hash, utcnow
+from axiom_council.filelock import locked
 
 GENESIS = "0" * 64
 MIN_REASON_CHARS = 5
@@ -117,12 +117,8 @@ class AuditLog:
     @contextmanager
     def _locked(self, *, exclusive: bool) -> Iterator[None]:
         """An advisory lock shared by every process that uses this log."""
-        with self._lock_path.open("a") as fh:
-            fcntl.flock(fh.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
-            try:
-                yield
-            finally:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        with locked(self._lock_path, exclusive=exclusive):
+            yield
 
     def _read(self) -> tuple[list[dict[str, Any]], bytes]:
         """Every complete record, plus any bytes after the last newline."""

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sqlite3
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -49,7 +50,13 @@ class AnchorStore(Protocol):
 
 
 def fsync_dir(path: Path) -> None:
-    """Make a rename or a new file in this directory durable."""
+    """Make a rename or a new file in this directory durable.
+
+    Windows cannot open a directory with os.open, so this does nothing there. On Windows the
+    durability of a rename depends on the file system; it has no test on a Windows host yet.
+    """
+    if sys.platform == "win32":
+        return
     fd = os.open(path, os.O_RDONLY)
     try:
         os.fsync(fd)
