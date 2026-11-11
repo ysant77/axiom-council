@@ -57,12 +57,23 @@ class Broker:
         self._taps.append(observer)
 
     def _inspect(self, envelope: Envelope) -> tuple[Finding, ...]:
-        """Run every interceptor, in chain order, and keep all findings.
+        """Run the interceptors in chain order and keep all findings.
 
         A reject does not stop the chain: a later interceptor still flags what it sees, so the
-        audit record of a rejected message is complete and independent of the chain order.
+        audit record of a rejected message does not depend on the chain order. One exception:
+        a reject from an interceptor with `terminal = True` ends inspection. The size limit
+        is terminal, because inspecting unbounded text is itself the risk. Put terminal
+        interceptors early in the chain.
         """
-        return tuple(f for interceptor in self._interceptors for f in interceptor.inspect(envelope))
+        findings: list[Finding] = []
+        for interceptor in self._interceptors:
+            found = tuple(interceptor.inspect(envelope))
+            findings.extend(found)
+            if getattr(interceptor, "terminal", False) and any(
+                f.severity == "reject" for f in found
+            ):
+                break
+        return tuple(findings)
 
     def _issue_evidence(self, envelope: Envelope) -> None:
         """Record the evidence of a delivered message when its sender is an issuer role."""

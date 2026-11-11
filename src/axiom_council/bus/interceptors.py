@@ -33,6 +33,11 @@ class Rejected(Exception):
 
 
 class Interceptor(Protocol):
+    """An interceptor may also set `terminal = True` (read with `getattr`, default false).
+
+    A reject from a terminal interceptor stops the chain; all other rejects do not.
+    """
+
     name: str
 
     def inspect(self, envelope: Envelope) -> Iterable[Finding]: ...
@@ -64,7 +69,10 @@ class RoutePolicy:
 
 
 class SizeLimit:
+    """Rejects oversize text. Terminal: the broker runs no later interceptor on such a message."""
+
     name = "size_limit"
+    terminal = True
 
     def __init__(self, max_chars: int = 200_000):
         self.max_chars = max_chars
