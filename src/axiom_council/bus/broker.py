@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field
 
 from axiom_council.audit import AuditLog
 from axiom_council.bus.envelope import Envelope
+from axiom_council.bus.evidence import EvidenceLedger
 from axiom_council.bus.interceptors import Finding, Interceptor
 
 Handler = Callable[[Envelope, tuple[Finding, ...]], None]
@@ -25,10 +26,26 @@ class Delivery:
         return any(f.severity == "flag" for f in self.findings)
 
 
+def _evidence_fields(envelope: Envelope) -> dict[str, list[str]]:
+    """Audit the cited evidence by hash; envelopes without evidence keep the old record shape."""
+    if not envelope.evidence:
+        return {}
+    return {"evidence_hashes": [item.content_hash for item in envelope.evidence]}
+
+
 class Broker:
-    def __init__(self, interceptors: Sequence[Interceptor], audit: AuditLog):
+    def __init__(
+        self,
+        interceptors: Sequence[Interceptor],
+        audit: AuditLog,
+        *,
+        ledger: EvidenceLedger | None = None,
+        evidence_issuers: Collection[str] = (),
+    ):
         self._interceptors = list(interceptors)
         self._audit = audit
+        self._ledger = ledger
+        self._issuers = frozenset(evidence_issuers)
         self._handlers: dict[str, list[Handler]] = defaultdict(list)
         self._taps: list[Tap] = []
 
@@ -48,6 +65,12 @@ class Broker:
                     return tuple(findings)
         return tuple(findings)
 
+    def _issue_evidence(self, envelope: Envelope) -> None:
+        """Record the evidence of a delivered message when its sender is an issuer role."""
+        if self._ledger is not None and envelope.sender in self._issuers:
+            for item in envelope.evidence:
+                self._ledger.record(envelope.task_id, item.content_hash)
+
     def publish(self, envelope: Envelope) -> Delivery:
         findings = self._inspect(envelope)
         rejected = any(f.severity == "reject" for f in findings)
@@ -66,11 +89,13 @@ class Broker:
             trust=str(envelope.trust),
             payload_hash=envelope.payload_hash,
             findings=[f.__dict__ for f in findings],
+            **_evidence_fields(envelope),
         )
         delivery = Delivery(envelope, not rejected, findings)
         for observer in self._taps:
             observer(envelope, delivery)
         if not rejected:
+            self._issue_evidence(envelope)
             for handler in self._handlers[envelope.recipient]:
                 handler(envelope, findings)
         return delivery

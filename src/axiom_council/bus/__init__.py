@@ -5,14 +5,18 @@ every envelope before delivering it. No agent holds a reference to another agent
 """
 
 from axiom_council.bus.broker import Broker, Delivery
-from axiom_council.bus.envelope import Envelope, MessageKind, Trust, seal
+from axiom_council.bus.envelope import Envelope, EvidenceItem, MessageKind, Trust, seal
+from axiom_council.bus.evidence import EvidenceLedger, InMemoryEvidenceLedger
 from axiom_council.bus.interceptors import Finding, Interceptor, Rejected
 
 __all__ = [
     "Broker",
     "Delivery",
     "Envelope",
+    "EvidenceItem",
+    "EvidenceLedger",
     "Finding",
+    "InMemoryEvidenceLedger",
     "Interceptor",
     "MessageKind",
     "Rejected",

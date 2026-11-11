@@ -1,4 +1,6 @@
 # Allowed message edges between roles. Anything not listed is rejected by the broker.
+# `require_grounded_numbers: true` makes the broker reject a message on that edge whose numbers
+# are not in its cited evidence (see bus/numbers.py). The default is false.
 # "director" is the human; "gatekeeper" is deterministic council code (sandbox + checks).
 routes:
   - {route_id: director-dispatcher, sender: director, recipient: dispatcher, kinds: [task, answer]}

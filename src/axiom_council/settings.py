@@ -137,6 +137,34 @@ class CriticAdmissionSettings(Strict):
         return value
 
 
+class GroundingSettings(Strict):
+    """Rules for the number-grounding interceptor. A route opts in with a flag."""
+
+    relative_tolerance: float = Field(
+        default=0.0,
+        ge=0,
+        lt=1,
+        description="a number also matches an evidence value within this share of that value",
+    )
+    rounding_min_digits: int = Field(
+        default=2,
+        ge=1,
+        le=12,
+        description="a decimal shown with at least this many digits matches a rounded value",
+    )
+    percent_matches_fraction: bool = Field(
+        default=False, description="a percent may match the evidence fraction (67% and 0.67)"
+    )
+    evidence_issuers: frozenset[str] = Field(
+        default=frozenset({"gatekeeper"}),
+        description="roles whose delivered messages issue evidence; others cannot cite their own",
+    )
+    identifier_allowlist: frozenset[str] = Field(
+        default=frozenset({"p50", "p90", "p95", "p99", "p999"}),
+        description="names with digits that are not measurements (whole token, any case)",
+    )
+
+
 class Settings(Strict):
     """Every named setting; an unknown name in the store fails validation, never passes silently."""
 
@@ -145,6 +173,7 @@ class Settings(Strict):
     pipeline: PipelineSettings = Field(default_factory=PipelineSettings)
     energy: EnergySettings = Field(default_factory=EnergySettings)
     critic_admission: CriticAdmissionSettings = Field(default_factory=CriticAdmissionSettings)
+    grounding: GroundingSettings = Field(default_factory=GroundingSettings)
 
     @classmethod
     def from_entries(cls, raw: dict[str, dict[str, Any]]) -> Settings:
