@@ -70,3 +70,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyt
 All changes reach `main` through a `<type>/<kebab-case>` branch and a pull request with green CI.
 
 CI enforces the same checks and a minimum of 85% coverage.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
