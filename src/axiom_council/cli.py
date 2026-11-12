@@ -9,7 +9,7 @@ import sys
 from datetime import timedelta
 from pathlib import Path
 
-from axiom_council.audit import AuditLog
+from axiom_council.audit import AuditTamperError, open_audit
 from axiom_council.configstore import KINDS, ConfigStore
 from axiom_council.contracts import Budget, Capability, TaskClass, TaskSpec
 from axiom_council.council import Council, open_registry
@@ -18,6 +18,7 @@ from axiom_council.evals.session import parse_contestants, run_bakeoff
 from axiom_council.providers import ProviderError, provider_for
 from axiom_council.sandbox.runner import DockerSandbox
 from axiom_council.sandbox.selftest import selftest
+from axiom_council.verify import verify_run
 
 
 def _home() -> Path:
@@ -123,7 +124,10 @@ def _cmd_inbox(args: argparse.Namespace) -> int:
             token = inbox.approve(
                 args.item_id, "director", timedelta(hours=args.ttl_hours), args.text or ""
             )
-            council.audit.append("approved", token.task_id, "director", token=token.token_id)
+            council.audit.append(
+                "approved", token.task_id, "director", token=token.token_id,
+                item=args.item_id, artifact=token.artifact_hash,
+            )  # fmt: skip
             print(f"approved: {token.token_id} (expires {token.expires_at.isoformat()})")
         elif args.action == "reject":
             inbox.reject(args.item_id, args.text or "")
@@ -163,7 +167,7 @@ def _cmd_sandbox(args: argparse.Namespace) -> int:
         profile,
         DockerSandbox(profile),
         _home(),
-        AuditLog(_home() / "audit.jsonl"),
+        open_audit(_home()),
         commit=args.commit,
     )
     print(f"snapshot  {report.snapshot.path} @ {report.snapshot.short}")
@@ -223,10 +227,33 @@ def _cmd_resume(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_audit(_: argparse.Namespace) -> int:
-    count = AuditLog(_home() / "audit.jsonl").verify()
-    print(json.dumps({"records": count, "chain": "intact"}))
+def _cmd_audit(args: argparse.Namespace) -> int:
+    log = open_audit(_home())
+    if args.action == "adopt":
+        if not args.reason:
+            print("audit adopt: --reason required", file=sys.stderr)
+            return 2
+        try:
+            record = log.adopt("director", args.reason)
+        except ValueError as exc:
+            print(f"audit adopt: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps({"adopted": record["seq"], "records": log.verify()}))
+        return 0
+    try:
+        head = log.head()
+    except AuditTamperError as exc:
+        print(json.dumps({"chain": "broken", "error": str(exc)}))
+        return 1
+    print(json.dumps({"records": head.count, "head": head.head, "chain": "intact"}))
     return 0
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    results = [Path(p) for p in args.results or []]
+    report = verify_run(_home(), results, allow_legacy=args.allow_legacy)
+    print(json.dumps(report.as_dict(), indent=2) if args.json else "\n".join(report.lines()))
+    return 0 if report.passed else 1
 
 
 def _task_args(p: argparse.ArgumentParser) -> None:
@@ -267,7 +294,20 @@ def _add_director_commands(sub: argparse._SubParsersAction[argparse.ArgumentPars
     config.add_argument("action", choices=["seed", "list"])
     config.set_defaults(fn=_cmd_config)
 
-    sub.add_parser("audit", help="verify the audit hash chain").set_defaults(fn=_cmd_audit)
+    audit = sub.add_parser("audit", help="verify the audit chain and anchors, or adopt a log")
+    audit.add_argument("action", nargs="?", choices=["verify", "adopt"], default="verify")
+    audit.add_argument("--reason", help="why the current log is trusted (adopt only)")
+    audit.set_defaults(fn=_cmd_audit)
+
+    verify = sub.add_parser("verify", help="verify recorded runs offline (no model or network)")
+    verify.add_argument(
+        "--results", nargs="+", action="extend", help="bake-off results files (default: all)"
+    )
+    verify.add_argument("--json", action="store_true", help="print a machine-readable report")
+    verify.add_argument(
+        "--allow-legacy", action="store_true", help="rows without provenance warn, not fail"
+    )
+    verify.set_defaults(fn=_cmd_verify)
 
 
 def _add_infra_commands(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -310,7 +350,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "inbox" and args.action != "list" and not args.item_id:
         print("inbox: item_id required", file=sys.stderr)
         return 2
-    code: int = args.fn(args)
+    try:
+        code: int = args.fn(args)
+    except AuditTamperError as exc:
+        print(f"audit: {exc}", file=sys.stderr)
+        return 1
     return code
 
 
