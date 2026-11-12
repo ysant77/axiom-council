@@ -78,6 +78,14 @@ class NodeGrant(Strict):
 class PipelineSettings(Strict):
     approval_action: str = "apply_patch"
     max_build_attempts: int = Field(default=2, ge=1, le=5)
+    gated_findings: bool = Field(
+        default=True,
+        description="screen critic findings and require answers to high findings (A9, A10);"
+        " false restores the verdict-only critic",
+    )
+    max_findings: int = Field(
+        default=50, ge=1, le=500, description="critic output with more findings is malformed"
+    )
     nodes: dict[str, NodeGrant] = Field(
         default_factory=lambda: {
             "plan": NodeGrant(role="dispatcher", capability=Capability.LLM_INFERENCE),

@@ -28,8 +28,20 @@ class PipelineState(TypedDict, total=False):
     attempts: int
     gate_passed: bool
     gate_report: str
+    gate_checks: dict[str, bool]
     critique: str
     critic_approves: bool
+    critic_output: str | None
+    critic_malformed: bool
+    patch_unreadable: bool
+    findings: list[dict[str, Any]]
+    unsupported: list[dict[str, str]]
+    answers: list[dict[str, Any]]
+    rejected_high: list[dict[str, str]]
+    unsupported_findings: int
+    unanswered_high_findings: int
+    route: str
+    failure_reason: str
     inbox_item: str
     approved_by: str
     outcome: str

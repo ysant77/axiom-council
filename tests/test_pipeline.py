@@ -51,7 +51,8 @@ class Agents:
 
     def build(self, state: PipelineState) -> dict[str, Any]:
         self.calls["build"] += 1
-        return {"patch": f"diff attempt {self.calls['build']}"}
+        n = self.calls["build"]
+        return {"patch": f"--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+attempt {n}\n"}
 
     def gate(self, state: PipelineState) -> dict[str, Any]:
         self.calls["gate"] += 1
@@ -62,7 +63,7 @@ class Agents:
 
     def critique(self, state: PipelineState) -> dict[str, Any]:
         self.calls["critique"] += 1
-        return {"critic_approves": self._critic, "critique": "looks fine"}
+        return {"critic_approves": self._critic, "critique": "looks fine", "critic_output": "[]"}
 
 
 @pytest.fixture
