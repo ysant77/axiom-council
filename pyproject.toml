@@ -3,6 +3,8 @@ name = "axiom-council"
 version = "0.1.0"
 description = "Policy-gated, evaluated council of open-weight models with cost-aware routing."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 authors = [{ name = "Yatharth Mahesh Sant", email = "ysant77@gmail.com" }]
 dependencies = [
