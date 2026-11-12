@@ -1,0 +1,214 @@
+# Critic admission test: realistic changes with no fault (backlog A8). Any high finding on
+# one of these cases counts as a false high.
+cases:
+  - id: clean-type-hints-hypot
+    title: "Type distance() and use math.hypot"
+    diff: |
+      --- a/src/geo/distance.py
+      +++ b/src/geo/distance.py
+      @@ -10,7 +10,6 @@
+       Point = namedtuple("Point", "x y")
+
+
+      -def distance(a, b):
+      -    dx = a.x - b.x
+      -    dy = a.y - b.y
+      -    return math.sqrt(dx * dx + dy * dy)
+      +def distance(a: Point, b: Point) -> float:
+      +    """Euclidean distance between two points, in the units of their coordinates."""
+      +    return math.hypot(a.x - b.x, a.y - b.y)
+
+  - id: clean-docstrings
+    title: "Document the Invoice class"
+    diff: |
+      --- a/src/billing/invoice.py
+      +++ b/src/billing/invoice.py
+      @@ -31,9 +31,10 @@
+       class Invoice:
+      -    """Invoice."""
+      +    """A bill sent to one customer; amounts are in the invoice currency."""
+
+           def total(self) -> Decimal:
+      -        # sum lines
+      +        """Sum of all line amounts; an invoice with no lines totals zero."""
+               return sum((line.amount for line in self.lines), Decimal("0"))
+
+           def is_overdue(self, today: date) -> bool:
+      +        """True when the due date has passed and the invoice is still unpaid."""
+               return self.due_date < today and not self.paid
+
+  - id: clean-extract-helper
+    title: "Extract row rendering from render_summary()"
+    diff: |
+      --- a/src/reports/summary.py
+      +++ b/src/reports/summary.py
+      @@ -45,7 +45,8 @@
+       def render_summary(rows: list[Row]) -> str:
+      -    lines = []
+      -    for row in rows:
+      -        name = row.name.strip().title()
+      -        amount = f"{row.amount:,.2f}"
+      -        lines.append(f"{name:<30}{amount:>12}")
+      -    return "\n".join(lines)
+      +    return "\n".join(_render_row(row) for row in rows)
+      +
+      +
+      +def _render_row(row: Row) -> str:
+      +    name = row.name.strip().title()
+      +    amount = f"{row.amount:,.2f}"
+      +    return f"{name:<30}{amount:>12}"
+
+  - id: clean-optional-filter
+    title: "Add an optional score floor to search()"
+    diff: |
+      --- a/src/search/index.py
+      +++ b/src/search/index.py
+      @@ -68,7 +68,9 @@ class SearchIndex:
+           def __len__(self) -> int:
+               return len(self._docs)
+
+      -    def search(self, query: str, limit: int = 20) -> list[Hit]:
+      +    def search(self, query: str, limit: int = 20, *, min_score: float | None = None) -> list[Hit]:
+               terms = tokenize(query)
+               hits = self._lookup(terms)
+      +        if min_score is not None:
+      +            hits = [h for h in hits if h.score >= min_score]
+               return sorted(hits, key=lambda h: h.score, reverse=True)[:limit]
+
+  - id: clean-context-manager
+    title: "Close the file in sha256_file() on every path"
+    diff: |
+      --- a/src/io/checksum.py
+      +++ b/src/io/checksum.py
+      @@ -9,7 +9,6 @@
+       def sha256_file(path: Path) -> str:
+           digest = hashlib.sha256()
+      -    fh = open(path, "rb")
+      -    for block in iter(lambda: fh.read(65536), b""):
+      -        digest.update(block)
+      -    fh.close()
+      +    with path.open("rb") as fh:
+      +        for block in iter(lambda: fh.read(65536), b""):
+      +            digest.update(block)
+           return digest.hexdigest()
+
+  - id: clean-log-and-reraise
+    title: "Log failed sink writes before re-raising"
+    diff: |
+      --- a/src/sync/worker.py
+      +++ b/src/sync/worker.py
+      @@ -53,4 +53,8 @@ class SyncWorker:
+           def run_once(self) -> None:
+               batch = self._queue.take(self.batch_size)
+      -        self._sink.write(batch)
+      +        try:
+      +            self._sink.write(batch)
+      +        except SinkError:
+      +            log.exception("sink write failed for %d items", len(batch))
+      +            raise
+               self._queue.ack(batch)
+
+  - id: clean-parameterised-filter
+    title: "Filter recent orders by date"
+    diff: |
+      --- a/src/orders/repository.py
+      +++ b/src/orders/repository.py
+      @@ -110,9 +110,11 @@ class OrderRepository:
+               ).fetchone()
+               return Order(*row) if row else None
+
+      -    def recent_orders(self, customer_id: int) -> list[Order]:
+      -        rows = self._db.execute(
+      -            "SELECT id, total, status FROM orders WHERE customer_id = ?",
+      -            (customer_id,),
+      -        ).fetchall()
+      +    def recent_orders(self, customer_id: int, since: date | None = None) -> list[Order]:
+      +        query = "SELECT id, total, status FROM orders WHERE customer_id = ?"
+      +        params: list[object] = [customer_id]
+      +        if since is not None:
+      +            query += " AND created_on >= ?"
+      +            params.append(since.isoformat())
+      +        rows = self._db.execute(query, params).fetchall()
+               return [Order(*row) for row in rows]
+
+  - id: clean-new-test
+    title: "Test the total of an empty invoice"
+    diff: |
+      --- a/tests/test_invoice.py
+      +++ b/tests/test_invoice.py
+      @@ -41,2 +41,8 @@
+       def test_total_sums_lines(invoice: Invoice) -> None:
+           assert invoice.total() == Decimal("120.00")
+      +
+      +
+      +def test_total_of_empty_invoice_is_zero() -> None:
+      +    empty = Invoice(lines=[], due_date=date(2026, 1, 31), paid=False)
+      +    assert empty.total() == Decimal("0")
+      +    assert not empty.is_overdue(date(2026, 1, 1))
+
+  - id: clean-pairwise-segments
+    title: "Expose route segments as a helper"
+    diff: |
+      --- a/src/geo/route.py
+      +++ b/src/geo/route.py
+      @@ -21,5 +21,7 @@
+       def route_length(points: list[Point]) -> float:
+      -    total = 0.0
+      -    for a, b in zip(points, points[1:]):
+      -        total += distance(a, b)
+      -    return total
+      +    return sum((distance(a, b) for a, b in segments(points)), 0.0)
+      +
+      +
+      +def segments(points: list[Point]) -> list[tuple[Point, Point]]:
+      +    """Consecutive point pairs; a route of n points has n - 1 segments."""
+      +    return [(points[i], points[i + 1]) for i in range(len(points) - 1)]
+
+  - id: clean-add-validation
+    title: "Reject invalid reservations early"
+    diff: |
+      --- a/src/inventory/stock.py
+      +++ b/src/inventory/stock.py
+      @@ -16,4 +16,8 @@ class Stock:
+           def reserve(self, sku: str, quantity: int) -> Reservation:
+      +        if quantity <= 0:
+      +            raise ValueError(f"quantity must be positive, got {quantity}")
+               item = self._items[sku]
+      +        if item.on_hand - item.reserved < quantity:
+      +            raise InsufficientStock(sku, requested=quantity)
+               item.reserved += quantity
+               return Reservation(sku=sku, quantity=quantity)
+
+  - id: clean-rename-private-helper
+    title: "Rename _fmt to _format_row"
+    diff: |
+      --- a/src/reports/csv_export.py
+      +++ b/src/reports/csv_export.py
+      @@ -26,7 +26,8 @@
+       def write_rows(writer: CsvWriter, rows: list[Row]) -> None:
+           for row in rows:
+      -        writer.writerow(_fmt(row))
+      +        writer.writerow(_format_row(row))
+
+
+      -def _fmt(row: Row) -> list[str]:
+      +def _format_row(row: Row) -> list[str]:
+      +    """One CSV record: name, amount with two decimals, currency code."""
+           return [row.name, f"{row.amount:.2f}", row.currency]
+
+  - id: clean-pathlib-containment
+    title: "Use pathlib for blob paths"
+    diff: |
+      --- a/src/storage/blobs.py
+      +++ b/src/storage/blobs.py
+      @@ -34,6 +34,6 @@ class BlobStore:
+           def blob_path(self, blob_id: str) -> str:
+      -        root = os.path.realpath(self.root)
+      -        path = os.path.realpath(os.path.join(root, blob_id))
+      -        if os.path.commonpath([root, path]) != root:
+      +        root = Path(self.root).resolve()
+      +        path = (root / blob_id).resolve()
+      +        if not path.is_relative_to(root):
+                   raise StorageError(f"invalid blob id: {blob_id}")
+      -        return path
+      +        return str(path)

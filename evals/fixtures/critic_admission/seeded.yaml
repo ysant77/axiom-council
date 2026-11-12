@@ -1,0 +1,266 @@
+# Critic admission test: code changes with exactly one seeded fault each (backlog A8).
+# The key gives the fault class, the file path and the line range in the NEW file version.
+# A finding supports the fault only if path, line overlap and fault class all match.
+# Titles describe the intent of the change, never the fault.
+cases:
+  - id: seeded-off-by-one
+    title: "Accept any sequence in chunks()"
+    key:
+      fault_class: off_by_one
+      path: src/batching/chunks.py
+      start_line: 46
+      end_line: 46
+    diff: |
+      --- a/src/batching/chunks.py
+      +++ b/src/batching/chunks.py
+      @@ -38,9 +38,9 @@
+       Record = dict[str, object]
+
+
+      -def chunks(items: list[Record], size: int) -> Iterator[list[Record]]:
+      +def chunks(items: Sequence[Record], size: int) -> Iterator[list[Record]]:
+           """Yield consecutive batches of at most `size` records."""
+           if size < 1:
+               raise ValueError("size must be positive")
+           for start in range(0, len(items), size):
+      -        yield items[start : start + size]
+      +        yield list(items[start : start + size - 1])
+
+  - id: seeded-swallowed-exception
+    title: "Tolerate a missing settings file at start-up"
+    key:
+      fault_class: swallowed_exception
+      path: src/config/loader.py
+      start_line: 23
+      end_line: 24
+    diff: |
+      --- a/src/config/loader.py
+      +++ b/src/config/loader.py
+      @@ -19,4 +19,7 @@
+       def load_settings(path: Path) -> Settings:
+      -    with path.open(encoding="utf-8") as fh:
+      -        raw = yaml.safe_load(fh) or {}
+      +    try:
+      +        with path.open(encoding="utf-8") as fh:
+      +            raw = yaml.safe_load(fh) or {}
+      +    except Exception:
+      +        raw = {}
+           return Settings.model_validate(raw)
+
+  - id: seeded-path-traversal
+    title: "Let callers choose the export file suffix"
+    key:
+      fault_class: path_traversal
+      path: src/exports/store.py
+      start_line: 63
+      end_line: 64
+    diff: |
+      --- a/src/exports/store.py
+      +++ b/src/exports/store.py
+      @@ -59,8 +59,6 @@ class ExportStore:
+           def __init__(self, export_root: Path) -> None:
+               self.export_root = export_root
+
+      -    def export_path(self, name: str) -> Path:
+      -        target = (self.export_root / name).resolve()
+      -        if not target.is_relative_to(self.export_root.resolve()):
+      -            raise ExportError(f"export name escapes the export root: {name}")
+      +    def export_path(self, name: str, *, suffix: str = ".csv") -> Path:
+      +        target = self.export_root / f"{name}{suffix}"
+               return target
+
+  - id: seeded-sql-injection
+    title: "Support a sort column in find_orders()"
+    key:
+      fault_class: injection
+      path: src/orders/repository.py
+      start_line: 90
+      end_line: 91
+    diff: |
+      --- a/src/orders/repository.py
+      +++ b/src/orders/repository.py
+      @@ -85,9 +85,10 @@ class OrderRepository:
+           def __init__(self, db: sqlite3.Connection) -> None:
+               self._db = db
+
+      -    def find_orders(self, customer_id: int, status: str) -> list[Order]:
+      +    def find_orders(self, customer_id: int, status: str, order_by: str = "id") -> list[Order]:
+               rows = self._db.execute(
+      -            "SELECT id, total, status FROM orders WHERE customer_id = ? AND status = ?",
+      +            "SELECT id, total, status FROM orders WHERE customer_id = ? AND status = ?"
+      +            f" ORDER BY {order_by}",
+                   (customer_id, status),
+               ).fetchall()
+               return [Order(*row) for row in rows]
+
+  - id: seeded-weakened-assertion
+    title: "Make the refund test less brittle"
+    key:
+      fault_class: weakened_assertion
+      path: tests/test_refunds.py
+      start_line: 26
+      end_line: 27
+    diff: |
+      --- a/tests/test_refunds.py
+      +++ b/tests/test_refunds.py
+      @@ -23,5 +23,5 @@
+       def test_refund_restores_balance(ledger: Ledger) -> None:
+           ledger.charge("acct-1", Decimal("40.00"))
+           ledger.refund("acct-1", Decimal("15.00"))
+      -    assert ledger.balance("acct-1") == Decimal("25.00")
+      -    assert ledger.entries("acct-1")[-1].kind == "refund"
+      +    assert ledger.balance("acct-1") >= Decimal("0.00")
+      +    assert ledger.entries("acct-1")
+
+  - id: seeded-changed-default
+    title: "Add a retry count to HttpClient"
+    key:
+      fault_class: changed_default
+      path: src/http/client.py
+      start_line: 16
+      end_line: 18
+    diff: |
+      --- a/src/http/client.py
+      +++ b/src/http/client.py
+      @@ -15,5 +15,8 @@
+       class HttpClient:
+      -    def __init__(self, base_url: str, *, timeout: float = 10.0, verify_tls: bool = True) -> None:
+      +    def __init__(
+      +        self, base_url: str, *, timeout: float = 10.0, verify_tls: bool = False, retries: int = 2
+      +    ) -> None:
+               self.base_url = base_url.rstrip("/")
+               self.timeout = timeout
+               self.verify_tls = verify_tls
+      +        self.retries = retries
+
+  - id: seeded-resource-leak
+    title: "Optionally skip blank lines in count_lines()"
+    key:
+      fault_class: resource_leak
+      path: src/reports/lines.py
+      start_line: 11
+      end_line: 14
+    diff: |
+      --- a/src/reports/lines.py
+      +++ b/src/reports/lines.py
+      @@ -7,6 +7,8 @@
+       from pathlib import Path
+
+
+      -def count_lines(path: Path) -> int:
+      -    with path.open(encoding="utf-8") as fh:
+      -        return sum(1 for _ in fh)
+      +def count_lines(path: Path, *, skip_blank: bool = False) -> int:
+      +    fh = path.open(encoding="utf-8")
+      +    if skip_blank:
+      +        return sum(1 for line in fh if line.strip())
+      +    return sum(1 for _ in fh)
+
+  - id: seeded-wrong-unit
+    title: "Add optional jitter to retry scheduling"
+    key:
+      fault_class: wrong_unit
+      path: src/jobs/retry.py
+      start_line: 37
+      end_line: 37
+    diff: |
+      --- a/src/jobs/retry.py
+      +++ b/src/jobs/retry.py
+      @@ -31,7 +31,7 @@
+       MAX_DELAY_S = 900
+
+
+      -def schedule_retry(job: Job, attempt: int) -> datetime:
+      +def schedule_retry(job: Job, attempt: int, *, jitter_ms: int = 0) -> datetime:
+           """Back off exponentially; the policy is stated in seconds."""
+           delay_s = min(BASE_DELAY_S * 2**attempt, MAX_DELAY_S)
+      -    return utcnow() + timedelta(seconds=delay_s)
+      +    return utcnow() + timedelta(milliseconds=delay_s + jitter_ms)
+
+  - id: seeded-race-condition
+    title: "Allow increments larger than one"
+    key:
+      fault_class: race_condition
+      path: src/metrics/counter.py
+      start_line: 18
+      end_line: 21
+    diff: |
+      --- a/src/metrics/counter.py
+      +++ b/src/metrics/counter.py
+      @@ -14,7 +14,8 @@
+               self._lock = threading.Lock()
+               self._counts: dict[str, int] = {}
+
+      -    def increment(self, key: str) -> int:
+      +    def increment(self, key: str, by: int = 1) -> int:
+      +        current = self._counts.get(key, 0)
+               with self._lock:
+      -            self._counts[key] = self._counts.get(key, 0) + 1
+      -            return self._counts[key]
+      +            self._counts[key] = current + by
+      +        return self._counts[key]
+
+  - id: seeded-api-break
+    title: "Make the currency explicit in parse_amount()"
+    key:
+      fault_class: api_break
+      path: src/money/parse.py
+      start_line: 6
+      end_line: 6
+    diff: |
+      --- a/src/money/parse.py
+      +++ b/src/money/parse.py
+      @@ -3,7 +3,7 @@
+       from decimal import Decimal
+
+
+      -def parse_amount(text: str, currency: str = "USD") -> Money:
+      +def parse_amount(text: str, *, currency_code: str) -> Money:
+           """Parse "12.50" into Money; public API, used by the importer plugins."""
+           value = Decimal(text.strip())
+      -    return Money(value, currency)
+      +    return Money(value, currency_code)
+
+  - id: seeded-missing-validation
+    title: "Record an audit event for each transfer"
+    key:
+      fault_class: missing_validation
+      path: src/api/transfers.py
+      start_line: 29
+      end_line: 32
+    diff: |
+      --- a/src/api/transfers.py
+      +++ b/src/api/transfers.py
+      @@ -28,7 +28,7 @@
+       @router.post("/transfers")
+       def create_transfer(body: TransferRequest, user: User = Depends(current_user)) -> Transfer:
+      -    if body.amount <= 0:
+      -        raise HTTPException(status_code=422, detail="amount must be positive")
+           if body.source_account not in user.accounts:
+               raise HTTPException(status_code=403, detail="not your account")
+      -    return transfers.create(body.source_account, body.target_account, body.amount)
+      +    transfer = transfers.create(body.source_account, body.target_account, body.amount)
+      +    audit.log("transfer.created", transfer_id=transfer.id, user_id=user.id)
+      +    return transfer
+
+  - id: seeded-type-coercion
+    title: "Simplify flag parsing"
+    key:
+      fault_class: type_coercion
+      path: src/config/flags.py
+      start_line: 7
+      end_line: 7
+    diff: |
+      --- a/src/config/flags.py
+      +++ b/src/config/flags.py
+      @@ -4,9 +4,4 @@
+       def parse_flag(value: str | None, default: bool = False) -> bool:
+           if value is None:
+               return default
+      -    normalised = value.strip().lower()
+      -    if normalised in {"1", "true", "yes", "on"}:
+      -        return True
+      -    if normalised in {"0", "false", "no", "off"}:
+      -        return False
+      -    raise ValueError(f"not a boolean flag: {value!r}")
+      +    return bool(value.strip())

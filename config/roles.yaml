@@ -24,3 +24,8 @@ roles:
     description: Deterministic council code; applies edits in the sandbox and runs allowlisted checks.
     capabilities: [read_workspace, run_sandbox]
     can_ask: [director]
+
+  - name: critic
+    description: Reports located faults in a change; runs in the pipeline only after it passes the critic admission test.
+    capabilities: [llm_inference, read_evidence]
+    can_ask: [dispatcher]

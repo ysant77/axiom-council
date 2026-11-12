@@ -14,10 +14,10 @@ import posixpath
 from collections.abc import Iterable
 from typing import Literal
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from axiom_council.contracts import Strict
-from axiom_council.pipeline.hunks import Ranges
+from axiom_council.diffs import Ranges
 
 GATE_EVIDENCE_PREFIX = "gate:"
 
@@ -48,16 +48,21 @@ class FindingAnswer(Strict):
 
 
 class FindingsMalformed(ValueError):
-    """The critic output is not a list of valid findings with unique ids within the limit."""
+    """The critic output is not one findings object with unique ids within the limit."""
 
 
-_FINDINGS = TypeAdapter(list[Finding])
+class FindingsReply(Strict):
+    """The critic output contract: one JSON object whose only key is `findings`."""
+
+    findings: list[Finding]
 
 
 def parse_findings(output: str, limit: int) -> list[Finding]:
-    """Parse the critic's JSON array of findings. Any defect rejects the whole output."""
+    """Parse the critic's `{"findings": [...]}` object strictly. A bare array, an extra key,
+    text around the object, a string for a number, a duplicate id or more than `limit`
+    findings rejects the whole output. The pipeline and the admission test both use this."""
     try:
-        findings = _FINDINGS.validate_json(output)
+        findings = FindingsReply.model_validate_json(output, strict=True).findings
     except ValidationError as exc:
         raise FindingsMalformed(f"critic output malformed: {exc}") from exc
     if len(findings) > limit:
