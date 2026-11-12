@@ -81,3 +81,15 @@ settings:
     min_seeded_cases: 12
     min_clean_cases: 12
     max_finding_lines: 20           # a wider finding cannot support a fault
+
+  # Number grounding: routes with `require_grounded_numbers: true` reject a message whose
+  # numbers are not in its cited evidence. These values tune how strict the match is.
+  - name: grounding
+    relative_tolerance: 0.0        # 0 = exact (after rounding); 0.05 = within 5% of an evidence value
+    rounding_min_digits: 2         # a decimal with at least this many digits matches a rounded value
+    percent_matches_fraction: false  # true: "67%" is grounded by an evidence value of 0.67
+    evidence_issuers: [gatekeeper]   # roles whose delivered messages issue citable evidence
+    # Names with digits that are not measurements. Whole token, any case. Any other token
+    # that joins a word and digits is read as a number. The caller adds the model ids of the
+    # registry at run time, so they do not belong here.
+    identifier_allowlist: [p50, p90, p95, p99, p999]

@@ -8,12 +8,15 @@ because pattern matching cannot prove intent; exact detectors (secrets, canaries
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from axiom_council.bus.envelope import Envelope, MessageKind, Trust
+from axiom_council.bus.evidence import EvidenceLedger, InMemoryEvidenceLedger
+from axiom_council.bus.numbers import payload_text, ungrounded_numbers
 from axiom_council.contracts import Strict
+from axiom_council.settings import GroundingSettings
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,11 @@ class Rejected(Exception):
 
 
 class Interceptor(Protocol):
+    """An interceptor may also set `terminal = True` (read with `getattr`, default false).
+
+    A reject from a terminal interceptor stops the chain; all other rejects do not.
+    """
+
     name: str
 
     def inspect(self, envelope: Envelope) -> Iterable[Finding]: ...
@@ -42,6 +50,7 @@ class Route(Strict):
     sender: str
     recipient: str
     kinds: frozenset[MessageKind]
+    require_grounded_numbers: bool = False
 
 
 class RoutePolicy:
@@ -60,7 +69,10 @@ class RoutePolicy:
 
 
 class SizeLimit:
+    """Rejects oversize text. Terminal: the broker runs no later interceptor on such a message."""
+
     name = "size_limit"
+    terminal = True
 
     def __init__(self, max_chars: int = 200_000):
         self.max_chars = max_chars
@@ -139,11 +151,75 @@ class CanaryGuard:
             yield Finding(self.name, "reject", "system prompt canary leaked into a message")
 
 
-def default_chain(routes: Iterable[Route], canaries: Iterable[str] = ()) -> list[Interceptor]:
+_MAX_NAMED = 20
+
+
+class NumberGrounding:
+    """Rejects a message whose numbers are not in its cited evidence.
+
+    Only edges that a route marks `require_grounded_numbers` are inspected. The number rules
+    are in `axiom_council.bus.numbers`. If two routes cover one edge, the flag wins. Evidence
+    counts only if the ledger knows its hash for the task (council code issued it). Evidence
+    the ledger does not know is ignored and named in the rejection reason. Without a ledger,
+    no evidence counts.
+    """
+
+    name = "number_grounding"
+
+    def __init__(
+        self,
+        routes: Iterable[Route],
+        rules: GroundingSettings | None = None,
+        ledger: EvidenceLedger | None = None,
+        identifiers: Collection[str] = (),
+    ):
+        self._rules = rules or GroundingSettings()
+        self._identifiers = frozenset(identifiers)
+        self._ledger = ledger or InMemoryEvidenceLedger()
+        self._flagged = {
+            (r.sender, r.recipient, kind)
+            for r in routes
+            if r.require_grounded_numbers
+            for kind in r.kinds
+        }
+
+    def inspect(self, envelope: Envelope) -> Iterable[Finding]:
+        if (envelope.sender, envelope.recipient, envelope.kind) not in self._flagged:
+            return
+        issued = [
+            e for e in envelope.evidence if self._ledger.known(envelope.task_id, e.content_hash)
+        ]
+        unissued = [e.evidence_id for e in envelope.evidence if e not in issued]
+        missing = ungrounded_numbers(
+            payload_text(envelope.payload), [e.text for e in issued], self._rules, self._identifiers
+        )
+        if missing:
+            yield Finding(self.name, "reject", _describe(missing, bool(issued), unissued))
+
+
+def _describe(missing: list[str], has_evidence: bool, unissued: list[str]) -> str:
+    named = ", ".join(missing[:_MAX_NAMED])
+    if len(missing) > _MAX_NAMED:
+        named += f" and {len(missing) - _MAX_NAMED} more"
+    reason = "ungrounded numbers" if has_evidence else "numbers with no issued evidence"
+    if unissued:
+        reason += f" (unissued evidence ignored: {', '.join(unissued)})"
+    return f"{reason}: {named}"
+
+
+def default_chain(
+    routes: Iterable[Route],
+    canaries: Iterable[str] = (),
+    grounding: GroundingSettings | None = None,
+    ledger: EvidenceLedger | None = None,
+    identifiers: Collection[str] = (),
+) -> list[Interceptor]:
+    route_list = list(routes)
     return [
-        RoutePolicy(routes),
+        RoutePolicy(route_list),
         SizeLimit(),
         SecretScanner(),
         CanaryGuard(canaries),
+        NumberGrounding(route_list, grounding, ledger, identifiers),
         InjectionHeuristics(),
     ]
